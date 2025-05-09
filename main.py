@@ -113,7 +113,7 @@ def botPolling():
 
 def deleteTask(message: Message):
     user_id = message.from_user.id
-    text = message.text.strip().lstrip('@')
+    text = normalize_channel(message.text)
     tasks = loadTasks()
 
     initial_count = len(tasks)
@@ -152,6 +152,18 @@ def showTasks(user_id):
     BOT.send_message(user_id, response)
 
 
+def normalize_channel(link: str) -> str:
+    """Приводит ссылку к короткому имени канала без @ и без https://t.me/."""
+    link = link.strip()
+    if link.startswith('https://t.me/'):
+        return link[13:]
+    if link.startswith('t.me/'):
+        return link[6:]
+    if link.startswith('@'):
+        return link[1:]
+    return link
+
+
 def acceptTask(message: Message):
     user_id = message.from_user.id
     lines = message.text.strip().split('\n')
@@ -166,8 +178,8 @@ def acceptTask(message: Message):
         return
 
     try:
-        target = lines[0].strip().lstrip('@')
-        sources = [s.lstrip('@') for s in lines[1].strip().split()]
+        target = normalize_channel(lines[0])
+        sources = [normalize_channel(s) for s in lines[1].strip().split()]
 
         time_strings = lines[2].strip().split()
         plan = []
@@ -250,7 +262,6 @@ async def processRequests():
 
         saveTasks(tasks)
         await async_sleep(LONG_SLEEP)
-
 
 
 @BOT.message_handler(commands=['start'])
