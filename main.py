@@ -56,7 +56,7 @@ def reformatPost(text, target_channel):
 
 
 async def getBestPost(source_channels, client):
-    Stamp(f'Getting best post among {', '.join(source_channels)}', 'i')
+    Stamp(f"Getting best post among {', '.join(source_channels)}", 'i')
     now = datetime.now(timezone.utc)
     since = now - timedelta(hours=HOURS_BEFORE_POST)
     best_post = None
