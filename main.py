@@ -4,6 +4,7 @@ from re import sub
 from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
+from telethon.tl.types import MessageEntityTextUrl
 from typing import List
 from common import BuildService, GetSector, Stamp, ParseAccountRow, ShowButtons
 from os.path import join, exists
@@ -52,7 +53,17 @@ def saveTasks(tasks: List[Task]):
         dump([t.to_dict() for t in tasks], f, indent=2)
 
 
-def reformatPost(text, target_channel):
+def reformatPost(message, target_channel):
+    text = message.message or ""
+    entities = message.entities or []
+
+    for entity in reversed(entities):
+        if isinstance(entity, MessageEntityTextUrl):
+            offset = entity.offset
+            length = entity.length
+            text = text[:(offset - 1)].rstrip() + f' @{target_channel}'
+            return text
+
     return sub(r'(https://t\.me/\S+|@\w+)', f'@{target_channel}', text)
 
 
@@ -251,18 +262,15 @@ async def processRequests():
 
                     entity = await sender.get_entity(task.target)
 
-                    text = best_msg.text or best_msg.message or ""
-                    text = reformatPost(text, task.target)
-
                     if best_msg.media:
                         try:
                             file_path = await reader.download_media(best_msg)
-                            await sender.send_file(entity, file_path, caption=reformatPost(text, task.target))
+                            await sender.send_file(entity, file_path, caption=reformatPost(best_msg, task.target))
                             remove(file_path)
                         except Exception as e:
                             Stamp(f"Unable to download file: {e}", 'w')
                     else:
-                        await sender.send_message(entity, reformatPost(text, task.target))
+                        await sender.send_message(entity, reformatPost(best_msg, task.target))
 
                     task.mark_as_posted(post)
                     Stamp(f"Post sent to @{task.target}", 's')
