@@ -8,9 +8,10 @@ from typing import List
 from common import BuildService, GetSector, Stamp, ParseAccountRow, ShowButtons
 from os.path import join, exists
 from os import getcwd, remove
-from secret import SHEET_NAME, SHEET_ID, SECRET_CODE
+from secret import SHEET_NAME, SHEET_ID, SECRET_CODE, MY_TG_ID, AR_TG_ID
 from source import (Task, TASKS_FILE, BOT, HOURS_BEFORE_POST, MAX_POSTS_TO_CHECK,
-                    AUTHORIZED_USERS_FILE, BTNS, LONG_SLEEP, CANCEL_BTN)
+                    AUTHORIZED_USERS_FILE, BTNS, LONG_SLEEP, CANCEL_BTN,
+                    NOTIF_TIME_DELTA)
 from traceback import format_exc
 from threading import Thread
 from asyncio import run, sleep as async_sleep
@@ -208,17 +209,26 @@ def acceptTask(message: Message):
     ShowButtons(message, BTNS, '❔ Что дальше?')
 
 
+def sendNotificationAboutWork():
+    if datetime.now() - source.LAST_NOTIF_PROCESSOR > timedelta(minutes=NOTIF_TIME_DELTA):
+        tasks = loadTasks()
+        msg = f'🆗 Заявок: {len(tasks)}'
+        BOT.send_message(MY_TG_ID, msg)
+        BOT.send_message(AR_TG_ID, msg)
+        source.LAST_NOTIF_PROCESSOR = datetime.now()
+
+
 async def processRequests():
     while True:
         now = datetime.now()
-
+        sendNotificationAboutWork()
         if source.LAST_TIMETABLE_CHANGE.date() < now.date():
             tasks = loadTasks()
             for task in tasks:
                 task.regenerate_schedule()
             saveTasks(tasks)
             source.LAST_TIMETABLE_CHANGE = now
-            Stamp("🗓 Расписания обновлены на новый день", 's')
+            Stamp("Timetables were renewed", 's')
 
         tasks = loadTasks()
 
@@ -226,7 +236,7 @@ async def processRequests():
             for post in task.get_due_posts(now):
                 try:
                     if not source.ACCOUNTS:
-                        Stamp("❌ Нет авторизованных аккаунтов", 'e')
+                        Stamp("No authorized accounts", 'e')
                         continue
 
                     sender = source.ACCOUNTS[0]
@@ -236,7 +246,7 @@ async def processRequests():
                     best_msg = await getBestPost(task.sources, reader)
 
                     if not best_msg:
-                        Stamp(f"⚠️ Не найден пост для @{task.target}", 'w')
+                        Stamp(f"Have not found post for @{task.target}", 'w')
                         continue
 
                     entity = await sender.get_entity(task.target)
@@ -250,15 +260,15 @@ async def processRequests():
                             await sender.send_file(entity, file_path, caption=reformatPost(text, task.target))
                             remove(file_path)
                         except Exception as e:
-                            Stamp(f"⚠️ Не удалось скачать или отправить файл: {e}", 'w')
+                            Stamp(f"Unable to download file: {e}", 'w')
                     else:
                         await sender.send_message(entity, reformatPost(text, task.target))
 
                     task.mark_as_posted(post)
-                    Stamp(f"✅ Пост отправлен в @{task.target} на {post.time.strftime('%H:%M')}", 's')
+                    Stamp(f"Post sent to @{task.target}", 's')
 
                 except Exception as e:
-                    Stamp(f"❌ Ошибка при отправке в @{task.target}: {e}", 'e')
+                    Stamp(f"Error sending to @{task.target}: {e}", 'e')
 
         saveTasks(tasks)
         await async_sleep(LONG_SLEEP)
