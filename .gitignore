@@ -1,0 +1,13 @@
+*.session
+secret.py
+.idea
+venv
+__pycache__
+sessions
+test.py
+*.json
+*.log
+logs*
+*.xlsx
+help_scripts
+*.pid
