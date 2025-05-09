@@ -7,7 +7,7 @@ from telethon.tl.functions.messages import GetHistoryRequest
 from typing import List
 from common import BuildService, GetSector, Stamp, ParseAccountRow, ShowButtons
 from os.path import join, exists
-from os import getcwd
+from os import getcwd, remove
 from secret import SHEET_NAME, SHEET_ID, SECRET_CODE
 from source import (Task, TASKS_FILE, BOT, HOURS_BEFORE_POST, MAX_POSTS_TO_CHECK,
                     AUTHORIZED_USERS_FILE, BTNS, LONG_SLEEP, CANCEL_BTN)
@@ -77,11 +77,11 @@ async def getBestPost(source_channels, client):
             ))
 
             for msg in history.messages:
-                if msg.date < since or not msg.message:
+                if msg.date < since or not (msg.text or msg.message or msg.media):
                     continue
                 if msg.forwards and msg.forwards > max_forwards:
                     max_forwards = msg.forwards
-                    best_post = msg.message
+                    best_post = msg
         except Exception as e:
             Stamp(f'Error fetching channel {channel}: {e}', 'e')
 
@@ -206,7 +206,7 @@ async def processRequests():
                 task.regenerate_schedule()
             saveTasks(tasks)
             source.LAST_TIMETABLE_CHANGE = now
-            Stamp(f"Timetables were renewed", 's')
+            Stamp("🗓 Расписания обновлены на новый день", 's')
 
         tasks = loadTasks()
 
@@ -214,29 +214,43 @@ async def processRequests():
             for post in task.get_due_posts(now):
                 try:
                     if not source.ACCOUNTS:
-                        Stamp("No accounts authorized", 'e')
+                        Stamp("❌ Нет авторизованных аккаунтов", 'e')
                         continue
 
                     sender = source.ACCOUNTS[0]
                     readers = source.ACCOUNTS[1:] if len(source.ACCOUNTS) > 1 else [sender]
-                    reader_index = i % len(readers)
-                    reader = readers[reader_index]
+                    reader = readers[i % len(readers)]
 
-                    best_post = await getBestPost(task.sources, reader)
-                    if best_post:
-                        reformatted = reformatPost(best_post, task.target)
-                        entity = await sender.get_entity(task.target)
-                        await sender.send_message(entity, reformatted)
-                        task.mark_as_posted(post)
-                        Stamp(f"Post was sent @{task.target}", 's')
+                    best_msg = await getBestPost(task.sources, reader)
+
+                    if not best_msg:
+                        Stamp(f"⚠️ Не найден пост для @{task.target}", 'w')
+                        continue
+
+                    entity = await sender.get_entity(task.target)
+
+                    text = best_msg.text or best_msg.message or ""
+                    text = reformatPost(text, task.target)
+
+                    if best_msg.media:
+                        try:
+                            file_path = await reader.download_media(best_msg)
+                            await sender.send_file(entity, file_path, caption=reformatPost(text, task.target))
+                            remove(file_path)
+                        except Exception as e:
+                            Stamp(f"⚠️ Не удалось скачать или отправить файл: {e}", 'w')
                     else:
-                        Stamp(f"No available post for @{task.target}", 'w')
+                        await sender.send_message(entity, reformatPost(text, task.target))
+
+                    task.mark_as_posted(post)
+                    Stamp(f"✅ Пост отправлен в @{task.target} на {post.time.strftime('%H:%M')}", 's')
 
                 except Exception as e:
-                    Stamp(f"Error sending to @{task.target}: {e}", 'e')
+                    Stamp(f"❌ Ошибка при отправке в @{task.target}: {e}", 'e')
 
         saveTasks(tasks)
         await async_sleep(LONG_SLEEP)
+
 
 
 @BOT.message_handler(commands=['start'])
