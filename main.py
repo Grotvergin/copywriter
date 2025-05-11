@@ -223,7 +223,9 @@ def acceptTask(message: Message):
 def sendNotificationAboutWork():
     if datetime.now() - source.LAST_NOTIF_PROCESSOR > timedelta(minutes=NOTIF_TIME_DELTA):
         tasks = loadTasks()
-        msg = f'🆗 Заявок: {len(tasks)}'
+        posted_count = sum(1 for task in tasks for post in task.schedule if post.posted)
+        msg = (f'🆗 Заявок: {len(tasks)}'
+               f'📈 Выложено постов: {posted_count}')
         BOT.send_message(MY_TG_ID, msg)
         BOT.send_message(AR_TG_ID, msg)
         source.LAST_NOTIF_PROCESSOR = datetime.now()
