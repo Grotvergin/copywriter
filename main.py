@@ -4,7 +4,6 @@ from re import sub
 from datetime import datetime, timedelta, timezone
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
-from telethon.tl.types import MessageEntityTextUrl
 from typing import List
 from common import BuildService, GetSector, Stamp, ParseAccountRow, ShowButtons
 from os.path import join, exists
@@ -55,16 +54,20 @@ def saveTasks(tasks: List[Task]):
 
 def reformatPost(message, target_channel):
     text = message.message or ""
-    entities = message.entities or []
 
-    for entity in reversed(entities):
-        if isinstance(entity, MessageEntityTextUrl):
-            offset = entity.offset
-            length = entity.length
-            text = text[:(offset - 1)].rstrip() + f' @{target_channel}'
-            return text
+    split_index = text.rfind('\n\n')
 
-    return sub(r'(https://t\.me/\S+|@\w+)', f'@{target_channel}', text)
+    if split_index != -1:
+        Stamp(f'Found blank line at {split_index}', 'i')
+        text = text[:split_index].rstrip() + f'\n\n@{target_channel}'
+    else:
+        Stamp('No blank line found', 'w')
+        msg = f'🔺 Не нашел пустой строки для обрезания в сообщении {message.id} из @{message.chat.username}'
+        BOT.send_message(MY_TG_ID, msg)
+        BOT.send_message(AR_TG_ID, msg)
+        text = sub(r'(https://t\.me/\S+|@\w+)', f'@{target_channel}', text)
+
+    return text
 
 
 async def getBestPost(source_channels, client):
