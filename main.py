@@ -72,8 +72,6 @@ def reformatPost(message, target_channel):
 
 async def getBestPost(source_channels, client):
     Stamp(f"Getting best post among {', '.join(source_channels)}", 'i')
-    now = datetime.now(timezone.utc)
-    since = now - timedelta(hours=HOURS_BEFORE_POST)
     best_post = None
     max_forwards = -1
 
@@ -92,7 +90,7 @@ async def getBestPost(source_channels, client):
             ))
 
             for msg in history.messages:
-                if msg.date < since or not (msg.text or msg.message or msg.media):
+                if not msg.text or msg.message or msg.media:
                     continue
                 if msg.forwards and msg.forwards > max_forwards:
                     max_forwards = msg.forwards
