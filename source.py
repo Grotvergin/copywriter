@@ -11,6 +11,7 @@ from ssl import SSLEOFError
 
 
 TASKS_FILE = 'tasks.json'
+POSTED_FILE = 'posted.json'
 ACCOUNTS = []
 BOT = TeleBot(TOKEN)
 JITTER_LIMIT_MIN = 15

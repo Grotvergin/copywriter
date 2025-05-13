@@ -11,7 +11,7 @@ from os import getcwd, remove
 from secret import SHEET_NAME, SHEET_ID, SECRET_CODE, MY_TG_ID, AR_TG_ID
 from source import (Task, TASKS_FILE, BOT, MAX_POSTS_TO_CHECK,
                     AUTHORIZED_USERS_FILE, BTNS, LONG_SLEEP, CANCEL_BTN,
-                    NOTIF_TIME_DELTA)
+                    NOTIF_TIME_DELTA, POSTED_FILE)
 from traceback import format_exc
 from threading import Thread
 from asyncio import run, sleep as async_sleep
@@ -70,10 +70,29 @@ def reformatPost(message, target_channel):
     return text
 
 
+def loadPosted():
+    if exists(POSTED_FILE):
+        with open(POSTED_FILE, 'r') as f:
+            return load(f)
+    return {}
+
+
+def savePosted(channel_name, post_id):
+    posted_posts = loadPosted()
+    if channel_name not in posted_posts:
+        posted_posts[channel_name] = []
+    posted_posts[channel_name].append(post_id)
+    with open(POSTED_FILE, 'w') as f:
+        dump(posted_posts, f, indent=2)
+
+
 async def getBestPost(source_channels, client):
     Stamp(f"Getting best post among {', '.join(source_channels)}", 'i')
     best_post = None
+    best_chan = None
+    best_id = None
     max_forwards = -1
+    posted = loadPosted()
 
     for channel in source_channels:
         try:
@@ -90,13 +109,22 @@ async def getBestPost(source_channels, client):
             ))
 
             for msg in history.messages:
-                if not msg.text or msg.message or msg.media:
+                if not (msg.text or msg.message or msg.media):
                     continue
+
+                if msg.id in posted.get(channel, []):
+                    continue
+
                 if msg.forwards and msg.forwards > max_forwards:
                     max_forwards = msg.forwards
                     best_post = msg
+                    best_chan = channel
+                    best_id = msg.id
         except Exception as e:
             Stamp(f'Error fetching channel {channel}: {e}', 'e')
+
+    if best_post:
+        savePosted(best_chan, best_id)
 
     return best_post
 
