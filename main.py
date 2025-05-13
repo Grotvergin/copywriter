@@ -1,7 +1,7 @@
 import source
 from json import load, JSONDecodeError, dump
 from re import sub
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
 from typing import List
@@ -9,7 +9,7 @@ from common import BuildService, GetSector, Stamp, ParseAccountRow, ShowButtons
 from os.path import join, exists
 from os import getcwd, remove
 from secret import SHEET_NAME, SHEET_ID, SECRET_CODE, MY_TG_ID, AR_TG_ID
-from source import (Task, TASKS_FILE, BOT, HOURS_BEFORE_POST, MAX_POSTS_TO_CHECK,
+from source import (Task, TASKS_FILE, BOT, MAX_POSTS_TO_CHECK,
                     AUTHORIZED_USERS_FILE, BTNS, LONG_SLEEP, CANCEL_BTN,
                     NOTIF_TIME_DELTA)
 from traceback import format_exc
