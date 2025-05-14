@@ -13,6 +13,7 @@ from telethon.types import MessageEntityCustomEmoji, MessageEntityTextUrl
 
 
 TASKS_FILE = 'tasks.json'
+MEDIA_DIR = 'media'
 POSTED_FILE = 'posted.json'
 ACCOUNTS = []
 BOT = TeleBot(TOKEN)

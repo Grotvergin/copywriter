@@ -11,3 +11,4 @@ logs*
 *.xlsx
 help_scripts
 *.pid
+media

@@ -13,7 +13,7 @@ from os import getcwd, remove
 from secret import SHEET_NAME, SHEET_ID, SECRET_CODE, MY_TG_ID, AR_TG_ID
 from source import (Task, TASKS_FILE, BOT, MAX_POSTS_TO_CHECK,
                     AUTHORIZED_USERS_FILE, BTNS, LONG_SLEEP, CANCEL_BTN,
-                    NOTIF_TIME_DELTA, POSTED_FILE, CustomMarkdown)
+                    NOTIF_TIME_DELTA, POSTED_FILE, CustomMarkdown, MEDIA_DIR)
 from traceback import format_exc
 from threading import Thread
 from asyncio import run, sleep as async_sleep
@@ -317,7 +317,7 @@ async def processRequests():
 
                     if best_msg.media:
                         try:
-                            file_name = f'./{task.target}_{best_msg.id}_{datetime.now().strftime('%H_%M_%S')}'
+                            file_name = f'./{MEDIA_DIR}/{task.target}_{best_msg.id}_{datetime.now().strftime('%H_%M_%S')}'
                             file_path = await reader.download_media(best_msg, file=file_name)
                             await sender.send_file(entity, file_path, caption=reformatPost(best_msg, task))
                             remove(file_path)
