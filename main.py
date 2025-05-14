@@ -303,7 +303,8 @@ async def processRequests():
 
                     if best_msg.media:
                         try:
-                            file_path = await reader.download_media(best_msg)
+                            file_name = f'./{task.target}_{best_msg.id}_{datetime.now().strftime('%H_%M_%S')}'
+                            file_path = await reader.download_media(best_msg, file=file_name)
                             await sender.send_file(entity, file_path, caption=reformatPost(best_msg, task.target))
                             remove(file_path)
                         except Exception as e:
