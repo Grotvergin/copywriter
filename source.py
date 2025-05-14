@@ -8,6 +8,8 @@ from googleapiclient.errors import HttpError
 from httplib2.error import ServerNotFoundError
 from socket import gaierror
 from ssl import SSLEOFError
+from telethon.extensions import markdown
+from telethon.types import MessageEntityCustomEmoji, MessageEntityTextUrl
 
 
 TASKS_FILE = 'tasks.json'
@@ -42,6 +44,7 @@ class Task:
     sources: List[str]
     plan: List[time]
     schedule: List[Post]
+    document_id: int
 
     def to_dict(self):
         return {
@@ -51,7 +54,8 @@ class Task:
             "schedule": [
                 {"time": p.time.isoformat(), "posted": p.posted}
                 for p in self.schedule
-            ]
+            ],
+            'document_id': self.document_id
         }
 
     @staticmethod
@@ -63,7 +67,8 @@ class Task:
             schedule=[
                 Post(time.fromisoformat(p["time"]), p["posted"])
                 for p in d.get("schedule", [])
-            ]
+            ],
+            document_id=d['document_id']
         )
 
     def get_due_posts(self, now: datetime) -> List[Post]:
@@ -93,3 +98,21 @@ class Task:
                 hour = (hour + 1) % 24
 
             self.schedule.append(Post(time=time(hour, minute)))
+
+
+class CustomMarkdown:
+    @staticmethod
+    def parse(text):
+        text, entities = markdown.parse(text)
+        for i, e in enumerate(entities):
+            if isinstance(e, MessageEntityTextUrl):
+                if e.url.startswith('emoji/'):
+                    entities[i] = MessageEntityCustomEmoji(e.offset, e.length, int(e.url.split('/')[1]))
+        return text, entities
+
+    @staticmethod
+    def unparse(text, entities):
+        for i, e in enumerate(entities or []):
+            if isinstance(e, MessageEntityCustomEmoji):
+                entities[i] = MessageEntityTextUrl(e.offset, e.length, f'emoji/{e.document_id}')
+        return markdown.unparse(text, entities)

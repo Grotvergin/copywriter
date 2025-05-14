@@ -1,3 +1,5 @@
+from telethon.tl.types import MessageEntityCustomEmoji
+
 import source
 from json import load, JSONDecodeError, dump
 from re import sub
@@ -11,7 +13,7 @@ from os import getcwd, remove
 from secret import SHEET_NAME, SHEET_ID, SECRET_CODE, MY_TG_ID, AR_TG_ID
 from source import (Task, TASKS_FILE, BOT, MAX_POSTS_TO_CHECK,
                     AUTHORIZED_USERS_FILE, BTNS, LONG_SLEEP, CANCEL_BTN,
-                    NOTIF_TIME_DELTA, POSTED_FILE)
+                    NOTIF_TIME_DELTA, POSTED_FILE, CustomMarkdown)
 from traceback import format_exc
 from threading import Thread
 from asyncio import run, sleep as async_sleep
@@ -52,20 +54,23 @@ def saveTasks(tasks: List[Task]):
         dump([t.to_dict() for t in tasks], f, indent=2)
 
 
-def reformatPost(message, target_channel):
+def reformatPost(message, task):
     text = message.message or ""
+    if task.document_id:
+        changed_link = f'\n\n[🌟](emoji/{task.document_id}) @{task.target}'
+    else:
+        changed_link = f'\n\n@{task.target})'
 
     split_index = text.rfind('\n\n')
-
     if split_index != -1:
         Stamp(f'Found blank line at {split_index}', 'i')
-        text = text[:split_index].rstrip() + f'\n\n@{target_channel}'
+        text = text[:split_index].rstrip() + changed_link
     else:
         Stamp('No blank line found', 'w')
         msg = f'🔺 Не нашел пустой строки для обрезания в сообщении {message.id} из @{message.chat.username}'
         BOT.send_message(MY_TG_ID, msg)
         BOT.send_message(AR_TG_ID, msg)
-        text = sub(r'(https://t\.me/\S+|@\w+)', f'@{target_channel}', text)
+        text = sub(r'(https://t\.me/\S+|@\w+)', changed_link, text)
 
     return text
 
@@ -181,6 +186,7 @@ def showTasks(user_id):
     for task in tasks:
         response += f"📍 Канал: @{task.target}\n"
         response += f"📎 Референсы: {' '.join(f'@{s}' for s in task.sources)}\n"
+        response += f'🌟 ID эмодзи: {task.document_id}\n'
         response += f"⏰ Расписание на сегодня:\n"
 
         for post, planned in zip(sorted(task.schedule, key=lambda p: p.time), task.plan):
@@ -207,13 +213,14 @@ def normalize_channel(link: str) -> str:
 def acceptTask(message: Message):
     user_id = message.from_user.id
     lines = message.text.strip().split('\n')
+    document_id = 0
 
     if message.text == CANCEL_BTN[0]:
         ShowButtons(message, BTNS, '❔ Выберите действие:')
         return
 
-    if len(lines) != 3:
-        ShowButtons(message, CANCEL_BTN, "❌ Неверный формат. Отправьте данные в 3 строках")
+    if len(lines) < 3 or len(lines) > 4:
+        ShowButtons(message, CANCEL_BTN, "❌ Неверный формат. Отправьте данные в 3 или 4 строках")
         BOT.register_next_step_handler(message, acceptTask)
         return
 
@@ -226,6 +233,11 @@ def acceptTask(message: Message):
         for t in time_strings:
             parsed = datetime.strptime(t, "%H:%M").time()
             plan.append(parsed)
+
+        if len(lines) == 4:
+            for entity in message.entities:
+                if entity.type == 'custom_emoji':
+                    document_id = int(entity.custom_emoji_id)
 
     except ValueError:
         ShowButtons(message, CANCEL_BTN, "❌ Ошибка: время должно быть в формате HH:MM (например, 10:15 14:00 18:45)")
@@ -243,7 +255,8 @@ def acceptTask(message: Message):
         target=target,
         sources=sources,
         plan=plan,
-        schedule=[]
+        schedule=[],
+        document_id=document_id
     )
 
     new_task.regenerate_schedule()
@@ -290,6 +303,7 @@ async def processRequests():
                         continue
 
                     sender = source.ACCOUNTS[0]
+                    sender.parse_mode = CustomMarkdown()
                     readers = source.ACCOUNTS[1:] if len(source.ACCOUNTS) > 1 else [sender]
                     reader = readers[i % len(readers)]
 
@@ -305,12 +319,12 @@ async def processRequests():
                         try:
                             file_name = f'./{task.target}_{best_msg.id}_{datetime.now().strftime('%H_%M_%S')}'
                             file_path = await reader.download_media(best_msg, file=file_name)
-                            await sender.send_file(entity, file_path, caption=reformatPost(best_msg, task.target))
+                            await sender.send_file(entity, file_path, caption=reformatPost(best_msg, task))
                             remove(file_path)
                         except Exception as e:
                             Stamp(f"Unable to download file: {e}", 'w')
                     else:
-                        await sender.send_message(entity, reformatPost(best_msg, task.target))
+                        await sender.send_message(entity, reformatPost(best_msg, task))
 
                     task.mark_as_posted(post)
                     Stamp(f"Post sent to @{task.target}", 's')
@@ -332,8 +346,10 @@ def startHandler(message: Message):
             source.AUTHORIZED_USERS.add(user_id)
             save_authorized_users(source.AUTHORIZED_USERS)
             BOT.send_message(user_id, "✅ Вы успешно авторизованы! Добро пожаловать!")
+            ShowButtons(message, BTNS, '❔ Выберите действие:')
         else:
             BOT.send_message(user_id, "🔓 Вы уже авторизованы.")
+            ShowButtons(message, BTNS, '❔ Выберите действие:')
     else:
         BOT.send_message(user_id, "❌ Неверный или отсутствующий код доступа.")
 
@@ -348,11 +364,12 @@ def MessageAccept(message: Message) -> None:
         return
 
     if message.text == BTNS[0]:
-        BOT.send_message(user_id, "❔ Пришлите данные в формате:\n\n"
-                                   "📍Целевой канал\n"
-                                   "📎Ссылки на каналы-референсы через пробел\n"
-                                   "⏰Часы публикаций через пробел\n\n"
-                                   "ℹ️ Пример:\n@mychannel\n@ref1 @ref2 @ref3\n10:15 12:22 14:00")
+        BOT.send_message(user_id,  "❔ Пришлите данные в формате:\n\n"
+                                   "📍 Целевой канал\n"
+                                   "📎 Ссылки на каналы-референсы через пробел\n"
+                                   "⏰ Часы публикаций через пробел\n"
+                                   "🌟 Кастомный эмодзи\n\n"
+                                   "ℹ️ Пример:\n@mychannel\n@ref1 @ref2 @ref3\n10:15 12:22 14:00\n🌟")
         BOT.register_next_step_handler(message, acceptTask)
     elif message.text == BTNS[1]:
         BOT.send_message(user_id, '❔ Введите ссылку на канал в формате @name')
