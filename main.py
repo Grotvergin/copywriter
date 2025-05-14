@@ -67,7 +67,7 @@ def reformatPost(message, task):
         text = text[:split_index].rstrip() + changed_link
     else:
         Stamp('No blank line found', 'w')
-        msg = f'🔺 Не нашел пустой строки для обрезания в сообщении {message.id} из @{message.chat.username}'
+        msg = f'🔺 Не нашел пустой строки для обрезания в сообщении для @{task.target}'
         BOT.send_message(MY_TG_ID, msg)
         BOT.send_message(AR_TG_ID, msg)
         text = sub(r'(https://t\.me/\S+|@\w+)', changed_link, text)
