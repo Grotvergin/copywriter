@@ -154,18 +154,17 @@ def botPolling():
 
 def deleteTask(message: Message):
     user_id = message.from_user.id
-    text = normalize_channel(message.text)
+    target = normalize_channel(message.text)
     tasks = loadTasks()
 
-    initial_count = len(tasks)
-    tasks = [task for task in tasks if task.target != text]
-    deleted_count = initial_count - len(tasks)
+    task_for_deletion = next((task for task in tasks if task.target == target), None)
 
-    if deleted_count == 0:
-        BOT.send_message(user_id, f"⚠️ Задача для канала @{text} не найдена.")
-    else:
+    if task_for_deletion:
+        tasks.remove(task_for_deletion)
         saveTasks(tasks)
-        BOT.send_message(user_id, f"✅ Задачи для канала @{text} удалены: {deleted_count}")
+        BOT.send_message(user_id, f"✅ Задача для канала @{target} удалена")
+    else:
+        BOT.send_message(user_id, f"⚠️ Задача для канала @{target} не найдена.")
 
     ShowButtons(message, BTNS, '❔ Выберите действие:')
 
@@ -229,7 +228,14 @@ def acceptTask(message: Message):
             plan.append(parsed)
 
     except ValueError:
-        BOT.send_message(user_id, "❌ Ошибка: время должно быть в формате HH:MM (например, 10:15 14:00 18:45)")
+        ShowButtons(message, CANCEL_BTN, "❌ Ошибка: время должно быть в формате HH:MM (например, 10:15 14:00 18:45)")
+        BOT.register_next_step_handler(message, acceptTask)
+        return
+
+    tasks = loadTasks()
+
+    if any(task.target == target for task in tasks):
+        ShowButtons(message, CANCEL_BTN, f'‼️ Заявка на канал {target} уже существует')
         BOT.register_next_step_handler(message, acceptTask)
         return
 
@@ -239,9 +245,8 @@ def acceptTask(message: Message):
         plan=plan,
         schedule=[]
     )
-    new_task.regenerate_schedule()
 
-    tasks = loadTasks()
+    new_task.regenerate_schedule()
     tasks.append(new_task)
     saveTasks(tasks)
 
