@@ -1,8 +1,5 @@
-from telethon.tl.types import MessageEntityCustomEmoji
-
 import source
 from json import load, JSONDecodeError, dump
-from re import sub
 from datetime import datetime, timedelta
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
@@ -58,9 +55,15 @@ def reformatPost(message, task):
     text = message.message or ""
 
     if task.document_id:
-        changed_link = f'\n\n[🌟](emoji/{task.document_id}) @{task.target}'
+        if task.signature:
+            changed_link = f'\n\n[🌟](emoji/{task.document_id})[{task.signature}](https://t.me/{task.target})'
+        else:
+            changed_link = f'\n\n[🌟](emoji/{task.document_id}) @{task.target}'
     else:
-        changed_link = f'\n\n@{task.target})'
+        if task.signature:
+            changed_link = f'\n\n[{task.signature}](https://t.me/{task.target})'
+        else:
+            changed_link = f'\n\n @{task.target}'
 
     split_index = text.rfind('\n\n')
     text = text[:split_index].rstrip() + changed_link
@@ -183,6 +186,7 @@ def showTasks(user_id):
         response += f"📍 Канал: @{task.target}\n"
         response += f"📎 Референсы: {' '.join(f'@{s}' for s in task.sources)}\n"
         response += f'🌟 ID эмодзи: {task.document_id}\n'
+        response += f'🪄 Подпись: {task.signature if task.signature else 'нет'}\n'
         response += f"⏰ Расписание на сегодня:\n"
 
         for post, planned in zip(sorted(task.schedule, key=lambda p: p.time), task.plan):
@@ -210,6 +214,7 @@ def acceptTask(message: Message):
     user_id = message.from_user.id
     lines = message.text.strip().split('\n')
     document_id = 0
+    signature = ''
 
     if message.text == CANCEL_BTN[0]:
         ShowButtons(message, BTNS, '❔ Выберите действие:')
@@ -231,9 +236,12 @@ def acceptTask(message: Message):
             plan.append(parsed)
 
         if len(lines) == 4:
+            signature = lines[3]
             for entity in message.entities:
                 if entity.type == 'custom_emoji':
                     document_id = int(entity.custom_emoji_id)
+                    signature = lines[3][entity.length-1:]
+                    break
 
     except ValueError:
         ShowButtons(message, CANCEL_BTN, "❌ Ошибка: время должно быть в формате HH:MM (например, 10:15 14:00 18:45)")
@@ -252,7 +260,8 @@ def acceptTask(message: Message):
         sources=sources,
         plan=plan,
         schedule=[],
-        document_id=document_id
+        document_id=document_id,
+        signature=signature
     )
 
     new_task.regenerate_schedule()
@@ -364,8 +373,8 @@ def MessageAccept(message: Message) -> None:
                                    "📍 Целевой канал\n"
                                    "📎 Ссылки на каналы-референсы через пробел\n"
                                    "⏰ Часы публикаций через пробел\n"
-                                   "🌟 Кастомный эмодзи\n\n"
-                                   "ℹ️ Пример:\n@mychannel\n@ref1 @ref2 @ref3\n10:15 12:22 14:00\n🌟")
+                                   "🌟 Кастомный эмодзи и подпись\n\n"
+                                   "ℹ️ Пример:\n@mychannel\n@ref1 @ref2 @ref3\n10:15 12:22 14:00\n🌟етим")
         BOT.register_next_step_handler(message, acceptTask)
     elif message.text == BTNS[1]:
         BOT.send_message(user_id, '❔ Введите ссылку на канал в формате @name')

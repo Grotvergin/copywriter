@@ -46,6 +46,7 @@ class Task:
     plan: List[time]
     schedule: List[Post]
     document_id: int
+    signature: str
 
     def to_dict(self):
         return {
@@ -56,7 +57,8 @@ class Task:
                 {"time": p.time.isoformat(), "posted": p.posted}
                 for p in self.schedule
             ],
-            'document_id': self.document_id
+            'document_id': self.document_id,
+            'signature': self.signature
         }
 
     @staticmethod
@@ -69,7 +71,8 @@ class Task:
                 Post(time.fromisoformat(p["time"]), p["posted"])
                 for p in d.get("schedule", [])
             ],
-            document_id=d['document_id']
+            document_id=d['document_id'],
+            signature=d['signature']
         )
 
     def get_due_posts(self, now: datetime) -> List[Post]:
