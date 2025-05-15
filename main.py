@@ -56,21 +56,14 @@ def saveTasks(tasks: List[Task]):
 
 def reformatPost(message, task):
     text = message.message or ""
+
     if task.document_id:
         changed_link = f'\n\n[🌟](emoji/{task.document_id}) @{task.target}'
     else:
         changed_link = f'\n\n@{task.target})'
 
     split_index = text.rfind('\n\n')
-    if split_index != -1:
-        Stamp(f'Found blank line at {split_index}', 'i')
-        text = text[:split_index].rstrip() + changed_link
-    else:
-        Stamp('No blank line found', 'w')
-        msg = f'🔺 Не нашел пустой строки для обрезания в сообщении для @{task.target}'
-        BOT.send_message(MY_TG_ID, msg)
-        BOT.send_message(AR_TG_ID, msg)
-        text = sub(r'(https://t\.me/\S+|@\w+)', changed_link, text)
+    text = text[:split_index].rstrip() + changed_link
 
     return text
 
@@ -118,6 +111,9 @@ async def getBestPost(source_channels, client):
                     continue
 
                 if msg.id in posted.get(channel, []):
+                    continue
+
+                if '\n\n' not in (msg.text or msg.message or ''):
                     continue
 
                 if msg.forwards and msg.forwards > max_forwards:
