@@ -10,7 +10,7 @@ from os import getcwd, remove
 from secret import SHEET_NAME, SHEET_ID, SECRET_CODE, MY_TG_ID, AR_TG_ID
 from source import (Task, TASKS_FILE, BOT, MAX_POSTS_TO_CHECK,
                     AUTHORIZED_USERS_FILE, BTNS, LONG_SLEEP, CANCEL_BTN,
-                    NOTIF_TIME_DELTA, POSTED_FILE, CustomMarkdown, MEDIA_DIR)
+                    NOTIF_TIME_DELTA, POSTED_FILE, CustomMarkdown, MEDIA_DIR, SEND_POST_LIMIT_SEC)
 from traceback import format_exc
 from threading import Thread
 from asyncio import run, sleep as async_sleep
@@ -277,10 +277,24 @@ def sendNotificationAboutWork():
         tasks = loadTasks()
         total_count = sum(1 for task in tasks for post in task.schedule)
         posted_count = sum(1 for task in tasks for post in task.schedule if post.posted)
+        overdue_count = 0
+        waiting_count = 0
+
+        for task in tasks:
+            for post in task.schedule:
+                if not post.posted:
+                    full_time = datetime.combine(datetime.today(), post.time)
+                    time_diff = (datetime.now() - full_time).total_seconds()
+                    if time_diff > SEND_POST_LIMIT_SEC:
+                        overdue_count += 1
+                    else:
+                        waiting_count += 1
+
         msg = (f'🆗 Заявок: {len(tasks)}\n'
                f'📍 Запланировано постов: {total_count}\n'
                f'✅ Выложено: {posted_count}\n'
-               f'💢 Ожидается: {total_count - posted_count}')
+               f'📛 Просрочено {overdue_count}\n'
+               f'🌀 Ожидается: {waiting_count}')
         BOT.send_message(MY_TG_ID, msg)
         BOT.send_message(AR_TG_ID, msg)
         source.LAST_NOTIF_PROCESSOR = datetime.now()

@@ -1,11 +1,8 @@
 from source import CONN_ERRORS, LONG_SLEEP, BOT
 # ---
-from typing import Any, Callable
 from datetime import datetime
 from time import sleep
-from functools import wraps
 from random import randint
-from asyncio import sleep as async_sleep
 # ---
 from googleapiclient.discovery import Resource, build
 from colorama import Fore, Style
