@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from telethon import TelegramClient
 from telethon.tl.functions.messages import GetHistoryRequest
 from typing import List
-from common import BuildService, GetSector, Stamp, ParseAccountRow, ShowButtons
+from common import BuildService, GetSector, Stamp, ParseAccountRow, ShowButtons, Sleep
 from os.path import join, exists
 from os import getcwd, remove
 from secret import SHEET_NAME, SHEET_ID, SECRET_CODE, MY_TG_ID, AR_TG_ID
@@ -180,10 +180,8 @@ def showTasks(user_id):
         BOT.send_message(user_id, "📭 Активных заявок нет.")
         return
 
-    response = "📅 Все активные заявки:\n\n"
-
     for task in tasks:
-        response += f"📍 Канал: @{task.target}\n"
+        response = f"📍 Канал: @{task.target}\n"
         response += f"📎 Референсы: {' '.join(f'@{s}' for s in task.sources)}\n"
         response += f'🌟 ID эмодзи: {task.document_id}\n'
         response += f'🪄 Подпись: {task.signature if task.signature else 'нет'}\n'
@@ -193,9 +191,8 @@ def showTasks(user_id):
             status = "✅" if post.posted else "🕒"
             response += f"   {status} {post.time.strftime('%H:%M')} (по плану в {planned.strftime('%H:%M')})\n"
 
-        response += "—" * 24 + "\n"
-
-    BOT.send_message(user_id, response)
+        BOT.send_message(user_id, response)
+        Sleep(1)
 
 
 def normalize_channel(link: str) -> str:
