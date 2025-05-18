@@ -94,6 +94,7 @@ async def getBestPost(source_channels, client):
     best_id = None
     max_forwards = -1
     posted = loadPosted()
+    reasons = []
 
     for channel in source_channels:
         try:
@@ -111,12 +112,15 @@ async def getBestPost(source_channels, client):
 
             for msg in history.messages:
                 if not (msg.text or msg.message or msg.media):
+                    reasons.append(f'📄 Пост https://t.me/{channel}/{msg.id} не содержит текста или медиа')
                     continue
 
                 if msg.id in posted.get(channel, []):
+                    reasons.append(f'🚫 Пост https://t.me/{channel}/{msg.id} уже был использован')
                     continue
 
                 if '\n\n' not in (msg.text or msg.message or ''):
+                    reasons.append(f'🔍 Пост https://t.me/{channel}/{msg.id} не содержит подряд двух переносов')
                     continue
 
                 if msg.forwards and msg.forwards > max_forwards:
@@ -129,8 +133,12 @@ async def getBestPost(source_channels, client):
 
     if best_post:
         savePosted(best_chan, best_id)
+        return best_post
 
-    return best_post
+    reasons_msg = '\n'.join(reasons) if reasons else '❓ Не удалось найти пост по неопределенным причинам'
+    global_msg = f'⭕️ Не удалось найти пост:\n{reasons_msg}'
+    BOT.send_message(MY_TG_ID, global_msg)
+    BOT.send_message(AR_TG_ID, global_msg)
 
 
 def load_authorized_users() -> set:
@@ -288,7 +296,7 @@ def sendNotificationAboutWork():
                         waiting_count += 1
 
         msg = (f'🆗 Заявок: {len(tasks)}\n'
-               f'📍 Запланировано постов: {total_count}\n'
+               f'📍 Запланировано: {total_count}\n'
                f'✅ Выложено: {posted_count}\n'
                f'📛 Просрочено {overdue_count}\n'
                f'🌀 Ожидается: {waiting_count}')
