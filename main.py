@@ -348,7 +348,7 @@ async def processRequests():
                         except Exception as e:
                             Stamp(f"Unable to download file: {e}", 'w')
                     else:
-                        await sender.send_message(entity, reformatPost(best_msg, task))
+                        await sender.send_message(entity, reformatPost(best_msg, task), link_preview=False)
 
                     task.mark_as_posted(post)
                     Stamp(f"Post sent to @{task.target}", 's')
