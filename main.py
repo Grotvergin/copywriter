@@ -15,6 +15,7 @@ from traceback import format_exc
 from threading import Thread
 from asyncio import run, sleep as async_sleep
 from telebot.types import Message
+from telethon.tl.types import MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention
 
 
 async def authorizeAccounts():
@@ -121,6 +122,16 @@ async def getBestPost(source_channels, client):
 
                 if '\n\n' not in (msg.text or msg.message or ''):
                     reasons.append(f'🔍 Пост https://t.me/{channel}/{msg.id} не содержит подряд двух переносов')
+                    continue
+
+                link_count = 0
+                if msg.entities:
+                    for ent in msg.entities:
+                        if isinstance(ent, (MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention)):
+                            link_count += 1
+
+                if link_count > 1:
+                    reasons.append(f'🔗 Пост https://t.me/{channel}/{msg.id} содержит больше одной ссылки')
                     continue
 
                 if msg.forwards and msg.forwards > max_forwards:
