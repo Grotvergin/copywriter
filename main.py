@@ -62,9 +62,9 @@ def reformatPost(message, task):
             changed_link = f'\n\n[🌟](emoji/{task.document_id}) @{task.target}'
     else:
         if task.signature:
-            changed_link = f'\n\n[{task.signature}](https://t.me/{task.target})'
+            changed_link = f' [{task.signature}](https://t.me/{task.target})'
         else:
-            changed_link = f'\n\n @{task.target}'
+            changed_link = f' @{task.target}'
 
     split_index = text.rfind('\n\n')
     text = text[:split_index].rstrip() + changed_link
