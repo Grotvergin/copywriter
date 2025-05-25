@@ -67,9 +67,12 @@ def reformatPost(message, task):
             changed_link = f' @{task.target}'
 
     split_index = text.rfind('\n\n')
-    text = text[:split_index].rstrip() + changed_link
+    main_text = text[:split_index].rstrip()
 
-    return text
+    if not task.document_id and main_text and main_text[-1] not in '.!?…':
+        main_text += '.'
+
+    return main_text + changed_link
 
 
 def loadPosted():
