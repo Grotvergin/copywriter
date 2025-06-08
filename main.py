@@ -91,7 +91,7 @@ def savePosted(channel_name, post_id):
         dump(posted_posts, f, indent=2)
 
 
-async def getBestPost(source_channels, client):
+async def getBestPost(source_channels, client, channel_name):
     Stamp(f"Getting best post among {', '.join(source_channels)}", 'i')
     best_post = None
     best_chan = None
@@ -116,15 +116,15 @@ async def getBestPost(source_channels, client):
 
             for msg in history.messages:
                 if not (msg.text or msg.message or msg.media):
-                    reasons.append(f'📄 Пост https://t.me/{channel}/{msg.id} не содержит текста или медиа')
+                    reasons.append(f'📄 https://t.me/{channel}/{msg.id} – нет текста или медиа')
                     continue
 
                 if msg.id in posted.get(channel, []):
-                    reasons.append(f'🚫 Пост https://t.me/{channel}/{msg.id} уже был использован')
+                    reasons.append(f'🚫 https://t.me/{channel}/{msg.id} – был')
                     continue
 
                 if '\n\n' not in (msg.text or msg.message or ''):
-                    reasons.append(f'🔍 Пост https://t.me/{channel}/{msg.id} не содержит подряд двух переносов')
+                    reasons.append(f'🔍 https://t.me/{channel}/{msg.id} – нет переносов')
                     continue
 
                 link_count = 0
@@ -134,7 +134,7 @@ async def getBestPost(source_channels, client):
                             link_count += 1
 
                 if link_count > 1:
-                    reasons.append(f'🔗 Пост https://t.me/{channel}/{msg.id} содержит больше одной ссылки')
+                    reasons.append(f'🔗 https://t.me/{channel}/{msg.id} – >1 ссылки')
                     continue
 
                 if msg.forwards and msg.forwards > max_forwards:
@@ -149,8 +149,8 @@ async def getBestPost(source_channels, client):
         savePosted(best_chan, best_id)
         return best_post
 
-    reasons_msg = '\n'.join(reasons) if reasons else '❓ Не удалось найти пост по неопределенным причинам'
-    global_msg = f'⭕️ Не удалось найти пост:\n{reasons_msg}'
+    reasons_msg = '\n'.join(reasons) if reasons else '❓ Неопределенные причины'
+    global_msg = f'⭕️ Не нашел для @{channel_name}:\n\n{reasons_msg}'
     BOT.send_message(MY_TG_ID, global_msg)
     BOT.send_message(AR_TG_ID, global_msg)
 
@@ -345,7 +345,7 @@ async def processRequests():
                     readers = source.ACCOUNTS[1:] if len(source.ACCOUNTS) > 1 else [sender]
                     reader = readers[i % len(readers)]
 
-                    best_msg = await getBestPost(task.sources, reader)
+                    best_msg = await getBestPost(task.sources, reader, task.target)
 
                     if not best_msg:
                         Stamp(f"Have not found post for @{task.target}", 'w')
