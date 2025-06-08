@@ -202,16 +202,28 @@ def showTasks(user_id):
         BOT.send_message(user_id, "📭 Активных заявок нет.")
         return
 
+    now = datetime.now().time()
+
     for task in tasks:
         response = f"📍 Канал: @{task.target}\n"
         response += f"📎 Референсы: {' '.join(f'@{s}' for s in task.sources)}\n"
-        response += f'🌟 ID эмодзи: {task.document_id}\n'
-        response += f'🪄 Подпись: {task.signature if task.signature else 'нет'}\n'
+        response += f"🌟 ID эмодзи: {task.document_id}\n"
+        response += f"🪄 Подпись: {task.signature if task.signature else 'нет'}\n"
+        response += f"🕗 Время публикаций: {task.start.strftime('%H:%M')} – {task.end.strftime('%H:%M')}\n"
+        response += f"📦 Всего постов в день: {task.amount}\n"
         response += f"⏰ Расписание на сегодня:\n"
 
-        for post, planned in zip(sorted(task.schedule, key=lambda p: p.time), task.plan):
-            status = "✅" if post.posted else "🕒"
-            response += f"   {status} {post.time.strftime('%H:%M')} (по плану в {planned.strftime('%H:%M')})\n"
+        for post in sorted(task.schedule, key=lambda p: p.time):
+            if post.skipped:
+                status = "🚫 Пропуск"
+            elif post.posted:
+                status = "✅ Выложен"
+            elif post.time > now:
+                status = "🕒 Ожидается"
+            else:
+                status = "⏰ Просрочен"
+
+            response += f"   {status}: {post.time.strftime('%H:%M')}\n"
 
         BOT.send_message(user_id, response)
         Sleep(1)
@@ -239,8 +251,8 @@ def acceptTask(message: Message):
         ShowButtons(message, BTNS, '❔ Выберите действие:')
         return
 
-    if len(lines) < 3 or len(lines) > 4:
-        ShowButtons(message, CANCEL_BTN, "❌ Неверный формат. Отправьте данные в 3 или 4 строках")
+    if len(lines) < 4 or len(lines) > 5:
+        ShowButtons(message, CANCEL_BTN, "❌ Неверный формат. Отправьте данные в 4 или 5 строках")
         BOT.register_next_step_handler(message, acceptTask)
         return
 
@@ -248,22 +260,30 @@ def acceptTask(message: Message):
         target = normalize_channel(lines[0])
         sources = [normalize_channel(s) for s in lines[1].strip().split()]
 
-        time_strings = lines[2].strip().split()
-        plan = []
-        for t in time_strings:
-            parsed = datetime.strptime(t, "%H:%M").time()
-            plan.append(parsed)
+        start_str, end_str = lines[2].strip().split()
+        start = datetime.strptime(start_str, "%H:%M").time()
+        end = datetime.strptime(end_str, "%H:%M").time()
 
-        if len(lines) == 4:
-            signature = lines[3]
+        amount = int(lines[3].strip())
+        if amount <= 0:
+            raise ValueError("Amount must be positive")
+
+        if len(lines) == 5:
+            signature = lines[4]
             for entity in message.entities:
                 if entity.type == 'custom_emoji':
                     document_id = int(entity.custom_emoji_id)
-                    signature = lines[3][entity.length-1:]
+                    signature = lines[4][entity.length - 1:]
                     break
 
     except ValueError:
-        ShowButtons(message, CANCEL_BTN, "❌ Ошибка: время должно быть в формате HH:MM (например, 10:15 14:00 18:45)")
+        ShowButtons(
+            message,
+            CANCEL_BTN,
+            "❌ Ошибка: используйте формат:\n"
+            "⏰ Время: HH:MM HH:MM\n"
+            "📦 Кол-во постов: положительное число"
+        )
         BOT.register_next_step_handler(message, acceptTask)
         return
 
@@ -277,13 +297,15 @@ def acceptTask(message: Message):
     new_task = Task(
         target=target,
         sources=sources,
-        plan=plan,
+        start=start,
+        end=end,
+        amount=amount,
         schedule=[],
         document_id=document_id,
         signature=signature
     )
 
-    new_task.regenerate_schedule()
+    new_task.regenerate_schedule(datetime.today().date())  # генерация расписания на сегодня
     tasks.append(new_task)
     saveTasks(tasks)
 
@@ -294,29 +316,43 @@ def acceptTask(message: Message):
 def sendNotificationAboutWork():
     if datetime.now() - source.LAST_NOTIF_PROCESSOR > timedelta(minutes=NOTIF_TIME_DELTA):
         tasks = loadTasks()
-        total_count = sum(1 for task in tasks for post in task.schedule)
-        posted_count = sum(1 for task in tasks for post in task.schedule if post.posted)
+
+        total_count = 0
+        posted_count = 0
+        skipped_count = 0
         overdue_count = 0
         waiting_count = 0
 
+        now = datetime.now()
+
         for task in tasks:
             for post in task.schedule:
-                if not post.posted:
-                    full_time = datetime.combine(datetime.today(), post.time)
-                    time_diff = (datetime.now() - full_time).total_seconds()
+                if post.skipped:
+                    skipped_count += 1
+                    continue
+
+                total_count += 1
+
+                if post.posted:
+                    posted_count += 1
+                else:
+                    full_time = datetime.combine(now.date(), post.time)
+                    time_diff = (now - full_time).total_seconds()
                     if time_diff > SEND_POST_LIMIT_SEC:
                         overdue_count += 1
                     else:
                         waiting_count += 1
 
-        msg = (f'🆗 Заявок: {len(tasks)}\n'
-               f'📍 Запланировано: {total_count}\n'
+        msg = (f'🆗 Активных заявок: {len(tasks)}\n'
+               f'📍 Всего запланировано: {total_count + skipped_count}\n'
                f'✅ Выложено: {posted_count}\n'
-               f'📛 Просрочено {overdue_count}\n'
-               f'🌀 Ожидается: {waiting_count}')
+               f'📛 Просрочено: {overdue_count}\n'
+               f'🌀 Ожидается: {waiting_count}\n'
+               f'🚫 Пропуск: {skipped_count}')
+
         BOT.send_message(MY_TG_ID, msg)
         BOT.send_message(AR_TG_ID, msg)
-        source.LAST_NOTIF_PROCESSOR = datetime.now()
+        source.LAST_NOTIF_PROCESSOR = now
 
 
 async def processRequests():
@@ -326,7 +362,7 @@ async def processRequests():
         if source.LAST_TIMETABLE_CHANGE.date() < now.date():
             tasks = loadTasks()
             for task in tasks:
-                task.regenerate_schedule()
+                task.regenerate_schedule(now.date())
             saveTasks(tasks)
             source.LAST_TIMETABLE_CHANGE = now
             Stamp("Timetables were renewed", 's')
@@ -402,12 +438,18 @@ def MessageAccept(message: Message) -> None:
         return
 
     if message.text == BTNS[0]:
-        BOT.send_message(user_id,  "❔ Пришлите данные в формате:\n\n"
-                                   "📍 Целевой канал\n"
-                                   "📎 Ссылки на каналы-референсы через пробел\n"
-                                   "⏰ Часы публикаций через пробел\n"
-                                   "🌟 Кастомный эмодзи и подпись\n\n"
-                                   "ℹ️ Пример:\n@mychannel\n@ref1 @ref2 @ref3\n10:15 12:22 14:00\n🌟етим")
+        BOT.send_message(user_id, "❔ Пришлите данные в формате:\n\n"
+                                  "📍 Целевой канал\n"
+                                  "📎 Ссылки на каналы-референсы через пробел\n"
+                                  "⏰ Время начала и окончания публикаций (например, 10:00 19:30)\n"
+                                  "📦 Количество постов в день\n"
+                                  "🌟 Кастомный эмодзи и подпись (опционально)\n\n"
+                                  "ℹ️ Пример:\n"
+                                  "@mychannel\n"
+                                  "@ref1 @ref2 @ref3\n"
+                                  "10:00 19:30\n"
+                                  "12\n"
+                                  "🌟 этим")
         BOT.register_next_step_handler(message, acceptTask)
     elif message.text == BTNS[1]:
         BOT.send_message(user_id, '❔ Введите ссылку на канал в формате @name')
