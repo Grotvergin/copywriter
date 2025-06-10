@@ -115,8 +115,8 @@ async def getBestPost(source_channels, client, channel_name):
             ))
 
             for msg in history.messages:
-                if not (msg.text or msg.message or msg.media):
-                    reason = '📄 Нет текста или медиа'
+                if not msg.text:
+                    reason = '📄 Нет текста'
                     if reason not in reasons:
                         reasons[reason] = []
                     reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
