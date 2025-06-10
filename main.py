@@ -98,7 +98,7 @@ async def getBestPost(source_channels, client, channel_name):
     best_id = None
     max_forwards = -1
     posted = loadPosted()
-    reasons = []
+    reasons = {}
 
     for channel in source_channels:
         try:
@@ -116,15 +116,17 @@ async def getBestPost(source_channels, client, channel_name):
 
             for msg in history.messages:
                 if not (msg.text or msg.message or msg.media):
-                    reasons.append(f'📄 https://t.me/{channel}/{msg.id} – нет текста или медиа')
+                    reason = '📄 Нет текста или медиа'
+                    if reason not in reasons:
+                        reasons[reason] = []
+                    reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
                     continue
 
                 if msg.id in posted.get(channel, []):
-                    reasons.append(f'🚫 https://t.me/{channel}/{msg.id} – был')
-                    continue
-
-                if '\n\n' not in (msg.text or msg.message or ''):
-                    reasons.append(f'🔍 https://t.me/{channel}/{msg.id} – нет переносов')
+                    reason = '🚫 Уже был использован'
+                    if reason not in reasons:
+                        reasons[reason] = []
+                    reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
                     continue
 
                 link_count = 0
@@ -134,7 +136,17 @@ async def getBestPost(source_channels, client, channel_name):
                             link_count += 1
 
                 if link_count > 1:
-                    reasons.append(f'🔗 https://t.me/{channel}/{msg.id} – >1 ссылки')
+                    reason = '🔗 Больше 1 ссылки'
+                    if reason not in reasons:
+                        reasons[reason] = []
+                    reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
+                    continue
+
+                if '\n\n' not in (msg.text or msg.message or '') and link_count == 1:
+                    reason = '🔍 Нет пустой строки при наличии 1-й ссылки'
+                    if reason not in reasons:
+                        reasons[reason] = []
+                    reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
                     continue
 
                 if msg.forwards and msg.forwards > max_forwards:
@@ -149,7 +161,8 @@ async def getBestPost(source_channels, client, channel_name):
         savePosted(best_chan, best_id)
         return best_post
 
-    reasons_msg = '\n'.join(reasons) if reasons else '❓ Неопределенные причины'
+    reasons_msg = "\n".join([f"{reason}:\n" + "\n".join(links) for reason, links in reasons.items()]) if reasons else '❓ Неопределенные причины'
+
     global_msg = f'⭕️ Не нашел для @{channel_name}:\n\n{reasons_msg}'
     BOT.send_message(MY_TG_ID, global_msg)
     BOT.send_message(AR_TG_ID, global_msg)
