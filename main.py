@@ -7,7 +7,8 @@ from typing import List
 from common import BuildService, GetSector, Stamp, ParseAccountRow, ShowButtons, Sleep
 from os.path import join, exists
 from os import getcwd, remove
-from secret import SHEET_NAME, SHEET_ID, SECRET_CODE, MY_TG_ID, AR_TG_ID
+from sys import exit
+from secret import SHEET_NAME, SHEET_ID, SECRET_CODE, MY_TG_ID, AR_TG_ID, ADM_TG_ID
 from source import (Task, TASKS_FILE, BOT, MAX_POSTS_TO_CHECK,
                     AUTHORIZED_USERS_FILE, BTNS, LONG_SLEEP, CANCEL_BTN,
                     NOTIF_TIME_DELTA, POSTED_FILE, CustomMarkdown, MEDIA_DIR, SEND_POST_LIMIT_SEC)
@@ -18,11 +19,19 @@ from telebot.types import Message
 from telethon.tl.types import MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention
 
 
+def sendMultipleMessages(bot, msg: str, chat_ids: list):
+    for chat_id in chat_ids:
+        bot.send_message(chat_id, msg)
+
+
 async def authorizeAccounts():
     srv = BuildService()
     row = len(GetSector('C2', 'C500', srv, SHEET_NAME, SHEET_ID)) + 1
     data = GetSector('A2', f'H{row}', srv, SHEET_NAME, SHEET_ID)
 
+    Stamp('Authorization procedure started', 'b')
+    sendMultipleMessages(BOT, '🔸Начата процедура авторизации...', [MY_TG_ID, AR_TG_ID, ADM_TG_ID])
+    first_account_ok = False
     for index, account in enumerate(data):
         try:
             api_id, api_hash, num, password_tg, ip, port, login, password_proxy = ParseAccountRow(account)
@@ -31,9 +40,24 @@ async def authorizeAccounts():
             continue
         session = join(getcwd(), 'sessions', f'{num}')
         client = TelegramClient(session, api_id, api_hash, proxy=(2, ip, port, True, login, password_proxy))
-        await client.start(phone=num, password=password_tg)
-        source.ACCOUNTS.append(client)
-        Stamp(f'Account {num} authorized', 's')
+        try:
+            await client.start(phone=num, password=password_tg)
+            source.ACCOUNTS.append(client)
+            Stamp(f'Account {num} authorized', 's')
+            if index == 0:
+                first_account_ok = True
+        except Exception as e:
+            Stamp(f'Error while starting client for {num}: {e}, {format_exc()}', 'e')
+            sendMultipleMessages(BOT, f'❌ Ошибка при старте клиента для {num}: {str(e)}', [MY_TG_ID, AR_TG_ID, ADM_TG_ID])
+            continue
+
+    if not first_account_ok:
+        msg = '🚨 Первый аккаунт не авторизован. Работа остановлена.'
+        Stamp(msg, 'e')
+        sendMultipleMessages(BOT, msg, [MY_TG_ID, AR_TG_ID, ADM_TG_ID])
+        exit(1)
+    Stamp(f'Finished, {len(source.ACCOUNTS)} accounts authorized', 'b')
+    sendMultipleMessages(BOT, f'🔹Процедура завершена, авторизовано {len(source.ACCOUNTS)} аккаунтов', [MY_TG_ID, AR_TG_ID, ADM_TG_ID])
 
 
 def loadTasks() -> List[Task]:
