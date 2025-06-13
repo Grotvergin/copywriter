@@ -1,3 +1,5 @@
+from itertools import count
+
 import source
 from json import load, JSONDecodeError, dump
 from datetime import datetime, timedelta
@@ -11,12 +13,12 @@ from sys import exit
 from secret import SHEET_NAME, SHEET_ID, SECRET_CODE, MY_TG_ID, AR_TG_ID, ADM_TG_ID
 from source import (Task, TASKS_FILE, BOT, MAX_POSTS_TO_CHECK,
                     AUTHORIZED_USERS_FILE, BTNS, LONG_SLEEP, CANCEL_BTN,
-                    NOTIF_TIME_DELTA, POSTED_FILE, CustomMarkdown, MEDIA_DIR, SEND_POST_LIMIT_SEC)
+                    NOTIF_TIME_DELTA, POSTED_FILE, MEDIA_DIR, SEND_POST_LIMIT_SEC, BUFFER_LINK_IS_AT_END)
 from traceback import format_exc
 from threading import Thread
 from asyncio import run, sleep as async_sleep
 from telebot.types import Message
-from telethon.tl.types import MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention
+from telethon.tl.types import MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention, MessageEntityCustomEmoji
 
 
 def sendMultipleMessages(bot, msg: str, chat_ids: list):
@@ -61,7 +63,6 @@ async def authorizeAccounts():
 
 
 def loadTasks() -> List[Task]:
-    Stamp('Loading tasks', 'i')
     try:
         with open(TASKS_FILE, 'r') as f:
             data = load(f)
@@ -71,32 +72,64 @@ def loadTasks() -> List[Task]:
 
 
 def saveTasks(tasks: List[Task]):
-    Stamp('Saving tasks', 'i')
     with open(TASKS_FILE, 'w') as f:
         dump([t.to_dict() for t in tasks], f, indent=2)
 
 
-def reformatPost(message, task):
-    text = message.message or ""
+def reformatPost(msg, task, ends_with_link):
+    text = msg.message
+    entities = msg.entities or []
+    cnt_emojis = 0
+
+    if ends_with_link:
+        link_offset = len(msg.message)
+        emoji_offset = len(msg.message)
+        for ent in msg.entities:
+            if isinstance(ent, (MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention)):
+                link_offset = ent.offset
+            elif isinstance(ent, MessageEntityCustomEmoji):
+                emoji_offset = ent.offset
+                cnt_emojis += 1
+
+        if abs(link_offset - emoji_offset) < BUFFER_LINK_IS_AT_END:
+            split_index = min(link_offset, emoji_offset) - cnt_emojis
+        else:
+            split_index = link_offset - cnt_emojis
+
+        text = text[:split_index].rstrip()
+        entities = [ent for ent in msg.entities if ent.offset <= split_index]
+
+    # if text and text[-1] not in '.!?…':
+    #     text += '.'
+    text += '\n\n'
 
     if task.document_id:
-        if task.signature:
-            changed_link = f'\n\n[🌟](emoji/{task.document_id})[{task.signature}](https://t.me/{task.target})'
-        else:
-            changed_link = f'\n\n[🌟](emoji/{task.document_id}) @{task.target}'
+        text += '🌟 '
+
+        emoji_entity = MessageEntityCustomEmoji(
+            offset=len(text),
+            length=2,
+            document_id=task.document_id
+        )
+        entities.append(emoji_entity)
+
+    # Добавляем подпись
+    if task.signature:
+        link_text = task.signature
     else:
-        if task.signature:
-            changed_link = f' [{task.signature}](https://t.me/{task.target})'
-        else:
-            changed_link = f' @{task.target}'
+        link_text = f'@{task.target}'
 
-    split_index = text.rfind('\n\n')
-    main_text = text[:split_index].rstrip()
+    link_offset = len(text)
+    text += link_text
 
-    if not task.document_id and main_text and main_text[-1] not in '.!?…':
-        main_text += '.'
+    # link_entity = MessageEntityTextUrl(
+    #     offset=link_offset,
+    #     length=len(link_text),
+    #     url=f"https://t.me/{task.target}"
+    # )
+    # entities.append(link_entity)
 
-    return main_text + changed_link
+    return text, entities
 
 
 def loadPosted():
@@ -123,6 +156,8 @@ async def getBestPost(source_channels, client, channel_name):
     max_forwards = -1
     posted = loadPosted()
     reasons = {}
+    ends_with_link = False
+    cnt_emojis = 0
 
     for channel in source_channels:
         try:
@@ -137,9 +172,9 @@ async def getBestPost(source_channels, client, channel_name):
                 add_offset=0,
                 hash=0
             ))
-
             for msg in history.messages:
-                if not msg.text:
+
+                if not msg.message:
                     reason = '📄 Нет текста'
                     if reason not in reasons:
                         reasons[reason] = []
@@ -158,6 +193,8 @@ async def getBestPost(source_channels, client, channel_name):
                     for ent in msg.entities:
                         if isinstance(ent, (MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention)):
                             link_count += 1
+                        elif isinstance(ent, MessageEntityCustomEmoji):
+                            cnt_emojis += 1
 
                 if link_count > 1:
                     reason = '🔗 Больше 1 ссылки'
@@ -166,14 +203,19 @@ async def getBestPost(source_channels, client, channel_name):
                     reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
                     continue
 
-                if '\n\n' not in (msg.text or msg.message or '') and link_count == 1:
-                    reason = '🔍 Нет пустой строки при наличии 1-й ссылки'
-                    if reason not in reasons:
-                        reasons[reason] = []
-                    reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
-                    continue
+                if link_count == 1:
+                    for ent in msg.entities:
+                        if isinstance(ent, (MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention)):
+                            if len(msg.message) + cnt_emojis == ent.length + ent.offset:
+                                ends_with_link = True
+                    if not ends_with_link:
+                        reason = '🔍 Не кончается на ссылку при наличии 1-й ссылки'
+                        if reason not in reasons:
+                            reasons[reason] = []
+                        reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
+                        continue
 
-                if msg.forwards and msg.forwards > max_forwards:
+                if msg.forwards > max_forwards:
                     max_forwards = msg.forwards
                     best_post = msg
                     best_chan = channel
@@ -183,13 +225,11 @@ async def getBestPost(source_channels, client, channel_name):
 
     if best_post:
         savePosted(best_chan, best_id)
-        return best_post
+        return best_post, ends_with_link
 
     reasons_msg = "\n".join([f"{reason}:\n" + "\n".join(links) for reason, links in reasons.items()]) if reasons else '❓ Неопределенные причины'
-
-    global_msg = f'⭕️ Не нашел для @{channel_name}:\n\n{reasons_msg}'
-    BOT.send_message(MY_TG_ID, global_msg)
-    BOT.send_message(AR_TG_ID, global_msg)
+    sendMultipleMessages(BOT, f'⭕️ Не нашел для @{channel_name}:\n\n{reasons_msg}', [MY_TG_ID, AR_TG_ID, ADM_TG_ID])
+    return None, ends_with_link
 
 
 def load_authorized_users() -> set:
@@ -387,8 +427,7 @@ def sendNotificationAboutWork():
                f'🌀 Ожидается: {waiting_count}\n'
                f'🚫 Пропуск: {skipped_count}')
 
-        BOT.send_message(MY_TG_ID, msg)
-        BOT.send_message(AR_TG_ID, msg)
+        sendMultipleMessages(BOT, msg, [MY_TG_ID, AR_TG_ID, ADM_TG_ID])
         source.LAST_NOTIF_PROCESSOR = now
 
 
@@ -414,34 +453,34 @@ async def processRequests():
                         continue
 
                     sender = source.ACCOUNTS[0]
-                    sender.parse_mode = CustomMarkdown()
                     readers = source.ACCOUNTS[1:] if len(source.ACCOUNTS) > 1 else [sender]
                     reader = readers[i % len(readers)]
 
-                    best_msg = await getBestPost(task.sources, reader, task.target)
+                    best_msg, ends_with_link = await getBestPost(task.sources, reader, task.target)
 
                     if not best_msg:
                         Stamp(f"Have not found post for @{task.target}", 'w')
                         continue
 
                     entity = await sender.get_entity(task.target)
+                    text, entities = reformatPost(best_msg, task, ends_with_link)
 
                     if best_msg.media:
                         try:
                             file_name = f'./{MEDIA_DIR}/{task.target}_{best_msg.id}_{datetime.now().strftime('%H_%M_%S')}'
                             file_path = await reader.download_media(best_msg, file=file_name)
-                            await sender.send_file(entity, file_path, caption=reformatPost(best_msg, task))
+                            await sender.send_file(entity, file_path, caption=text)
                             remove(file_path)
                         except Exception as e:
                             Stamp(f"Unable to download file: {e}", 'w')
                     else:
-                        await sender.send_message(entity, reformatPost(best_msg, task), link_preview=False)
+                        await sender.send_message(entity, text, formatting_entities=entities, link_preview=False)
 
                     task.mark_as_posted(post)
                     Stamp(f"Post sent to @{task.target}", 's')
 
                 except Exception as e:
-                    Stamp(f"Error sending to @{task.target}: {e}", 'e')
+                    Stamp(f"Error sending to @{task.target}: {e}, {format_exc()}", 'e')
 
         saveTasks(tasks)
         await async_sleep(LONG_SLEEP)
