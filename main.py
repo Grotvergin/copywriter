@@ -1,5 +1,3 @@
-from itertools import count
-
 import source
 from json import load, JSONDecodeError, dump
 from datetime import datetime, timedelta
@@ -19,6 +17,7 @@ from threading import Thread
 from asyncio import run, sleep as async_sleep
 from telebot.types import Message
 from telethon.tl.types import MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention, MessageEntityCustomEmoji
+from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument
 
 
 def sendMultipleMessages(bot, msg: str, chat_ids: list):
@@ -99,10 +98,10 @@ def reformatPost(msg, task, ends_with_link):
         text = text[:split_index].rstrip()
         entities = [ent for ent in msg.entities if ent.offset <= split_index]
 
-    # if text and text[-1] not in '.!?…':
-    #     text += '.'
+    if text and text[-1] not in '.!?…':
+        text += '.'
     text += '\n\n'
-
+    link_offset = len(text) + 2
     if task.document_id:
         text += '🌟 '
 
@@ -112,22 +111,21 @@ def reformatPost(msg, task, ends_with_link):
             document_id=task.document_id
         )
         entities.append(emoji_entity)
+        link_offset += 3
 
-    # Добавляем подпись
     if task.signature:
         link_text = task.signature
     else:
         link_text = f'@{task.target}'
 
-    link_offset = len(text)
     text += link_text
 
-    # link_entity = MessageEntityTextUrl(
-    #     offset=link_offset,
-    #     length=len(link_text),
-    #     url=f"https://t.me/{task.target}"
-    # )
-    # entities.append(link_entity)
+    link_entity = MessageEntityTextUrl(
+        offset=link_offset,
+        length=len(link_text),
+        url=f"https://t.me/{task.target}"
+    )
+    entities.append(link_entity)
 
     return text, entities
 
@@ -209,7 +207,7 @@ async def getBestPost(source_channels, client, channel_name):
                             if len(msg.message) + cnt_emojis == ent.length + ent.offset:
                                 ends_with_link = True
                     if not ends_with_link:
-                        reason = '🔍 Не кончается на ссылку при наличии 1-й ссылки'
+                        reason = '🔍 В посте ровно 1 ссылка, но не в конце'
                         if reason not in reasons:
                             reasons[reason] = []
                         reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
@@ -469,10 +467,11 @@ async def processRequests():
                         try:
                             file_name = f'./{MEDIA_DIR}/{task.target}_{best_msg.id}_{datetime.now().strftime('%H_%M_%S')}'
                             file_path = await reader.download_media(best_msg, file=file_name)
-                            await sender.send_file(entity, file_path, caption=text)
+                            await sender.send_message(entity, text, file=file_path, formatting_entities=entities, link_preview=False)
                             remove(file_path)
                         except Exception as e:
                             Stamp(f"Unable to download file: {e}", 'w')
+
                     else:
                         await sender.send_message(entity, text, formatting_entities=entities, link_preview=False)
 
