@@ -171,6 +171,7 @@ async def getBestPost(source_channels, client, channel_name):
                 hash=0
             ))
             for msg in history.messages:
+                ends_with_link = False
 
                 if not msg.message:
                     reason = '📄 Нет текста'
