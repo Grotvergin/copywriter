@@ -8,16 +8,17 @@ from common import BuildService, GetSector, Stamp, ParseAccountRow, ShowButtons,
 from os.path import join, exists
 from os import getcwd, remove
 from sys import exit
+from emoji import is_emoji
 from secret import SHEET_NAME, SHEET_ID, SECRET_CODE, MY_TG_ID, AR_TG_ID, ADM_TG_ID
 from source import (Task, TASKS_FILE, BOT, MAX_POSTS_TO_CHECK,
                     AUTHORIZED_USERS_FILE, BTNS, LONG_SLEEP, CANCEL_BTN,
-                    NOTIF_TIME_DELTA, POSTED_FILE, MEDIA_DIR, SEND_POST_LIMIT_SEC, BUFFER_LINK_IS_AT_END)
+                    NOTIF_TIME_DELTA, POSTED_FILE, MEDIA_DIR, SEND_POST_LIMIT_SEC,
+                    BUFFER_LINK_IS_AT_END, CustomMarkdown, BUFFER_EMOJI_BELONGS_TO_LINK)
 from traceback import format_exc
 from threading import Thread
 from asyncio import run, sleep as async_sleep
 from telebot.types import Message
 from telethon.tl.types import MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention, MessageEntityCustomEmoji
-from telethon.tl.types import MessageMediaPhoto, MessageMediaDocument
 
 
 def sendMultipleMessages(bot, msg: str, chat_ids: list):
@@ -75,14 +76,31 @@ def saveTasks(tasks: List[Task]):
         dump([t.to_dict() for t in tasks], f, indent=2)
 
 
+def findIdByOffset(where_found, entities):
+    closest_entity = None
+    min_diff = float('inf')
+
+    for ent in entities:
+        if isinstance(ent, MessageEntityCustomEmoji):
+            diff = abs(ent.offset - where_found)
+
+            if diff < min_diff:
+                min_diff = diff
+                closest_entity = ent
+
+    if closest_entity:
+        return closest_entity.document_id
+
+
 def reformatPost(msg, task, ends_with_link):
     text = msg.message
-    entities = msg.entities or []
     cnt_emojis = 0
+    new_text = ""
 
     if ends_with_link:
         link_offset = len(msg.message)
         emoji_offset = len(msg.message)
+
         for ent in msg.entities:
             if isinstance(ent, (MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention)):
                 link_offset = ent.offset
@@ -90,44 +108,35 @@ def reformatPost(msg, task, ends_with_link):
                 emoji_offset = ent.offset
                 cnt_emojis += 1
 
-        if abs(link_offset - emoji_offset) < BUFFER_LINK_IS_AT_END:
+        if abs(link_offset - emoji_offset) < BUFFER_EMOJI_BELONGS_TO_LINK:
             split_index = min(link_offset, emoji_offset) - cnt_emojis
         else:
             split_index = link_offset - cnt_emojis
 
         text = text[:split_index].rstrip()
-        entities = [ent for ent in msg.entities if ent.offset <= split_index]
+        msg.entities = [ent for ent in msg.entities if ent.offset < split_index]
 
-    if text and text[-1] not in '.!?…':
-        text += '.'
-    text += '\n\n'
-    link_offset = len(text) + 2
+    for i, char in enumerate(text):
+        if is_emoji(char):
+            doc_id = findIdByOffset(i, msg.entities)
+            if doc_id:
+                new_text += f"[🌟](emoji/{doc_id})"
+            else:
+                new_text += char
+        else:
+            new_text += char
+
+    if new_text and new_text[-1] not in '.!?…':
+        new_text += '.'
+    new_text += '\n\n'
+
     if task.document_id:
-        text += '🌟 '
-
-        emoji_entity = MessageEntityCustomEmoji(
-            offset=len(text),
-            length=2,
-            document_id=task.document_id
-        )
-        entities.append(emoji_entity)
-        link_offset += 3
+        new_text += f'[🌟](emoji/{task.document_id}) '
 
     if task.signature:
-        link_text = task.signature
-    else:
-        link_text = f'@{task.target}'
+        new_text += f'[{task.signature}](https://t.me/{task.target})'
 
-    text += link_text
-
-    link_entity = MessageEntityTextUrl(
-        offset=link_offset,
-        length=len(link_text),
-        url=f"https://t.me/{task.target}"
-    )
-    entities.append(link_entity)
-
-    return text, entities
+    return new_text
 
 
 def loadPosted():
@@ -171,7 +180,7 @@ async def getBestPost(source_channels, client, channel_name):
                 hash=0
             ))
             for msg in history.messages:
-                ends_with_link = False
+                temp_ends_with_link = False
 
                 if not msg.message:
                     reason = '📄 Нет текста'
@@ -205,9 +214,11 @@ async def getBestPost(source_channels, client, channel_name):
                 if link_count == 1:
                     for ent in msg.entities:
                         if isinstance(ent, (MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention)):
-                            if len(msg.message) + cnt_emojis == ent.length + ent.offset:
-                                ends_with_link = True
-                    if not ends_with_link:
+                            left = len(msg.message) + cnt_emojis
+                            right = ent.length + ent.offset
+                            if abs((len(msg.message) + cnt_emojis) - (ent.length + ent.offset)) < BUFFER_LINK_IS_AT_END:
+                                temp_ends_with_link = True
+                    if not temp_ends_with_link:
                         reason = '🔍 В посте ровно 1 ссылка, но не в конце'
                         if reason not in reasons:
                             reasons[reason] = []
@@ -219,6 +230,7 @@ async def getBestPost(source_channels, client, channel_name):
                     best_post = msg
                     best_chan = channel
                     best_id = msg.id
+                    ends_with_link = temp_ends_with_link
         except Exception as e:
             Stamp(f'Error fetching channel {channel}: {e}', 'e')
 
@@ -452,6 +464,7 @@ async def processRequests():
                         continue
 
                     sender = source.ACCOUNTS[0]
+                    sender.parse_mode = CustomMarkdown()
                     readers = source.ACCOUNTS[1:] if len(source.ACCOUNTS) > 1 else [sender]
                     reader = readers[i % len(readers)]
 
@@ -462,25 +475,27 @@ async def processRequests():
                         continue
 
                     entity = await sender.get_entity(task.target)
-                    text, entities = reformatPost(best_msg, task, ends_with_link)
+                    text = reformatPost(best_msg, task, ends_with_link)
 
                     if best_msg.media:
                         try:
                             file_name = f'./{MEDIA_DIR}/{task.target}_{best_msg.id}_{datetime.now().strftime('%H_%M_%S')}'
                             file_path = await reader.download_media(best_msg, file=file_name)
-                            await sender.send_message(entity, text, file=file_path, formatting_entities=entities, link_preview=False)
+                            await sender.send_message(entity, text, file=file_path, link_preview=False)
                             remove(file_path)
                         except Exception as e:
-                            Stamp(f"Unable to download file: {e}", 'w')
+                            Stamp(f"Unable to download file for {task.target}: {e}, {format_exc()}", 'w')
+                            sendMultipleMessages(BOT, f'💢 Не удалось скачать файл с медиа для {task.target}: {e}, {format_exc()}', [MY_TG_ID, AR_TG_ID, ADM_TG_ID])
 
                     else:
-                        await sender.send_message(entity, text, formatting_entities=entities, link_preview=False)
+                        await sender.send_message(entity, text, link_preview=False)
 
                     task.mark_as_posted(post)
                     Stamp(f"Post sent to @{task.target}", 's')
 
                 except Exception as e:
                     Stamp(f"Error sending to @{task.target}: {e}, {format_exc()}", 'e')
+                    sendMultipleMessages(BOT, f'🚫 Не удалось отправить пост в {task.target}: {e}, {format_exc()}', [MY_TG_ID, AR_TG_ID, ADM_TG_ID])
 
         saveTasks(tasks)
         await async_sleep(LONG_SLEEP)

@@ -18,7 +18,8 @@ MEDIA_DIR = 'media'
 POSTED_FILE = 'posted.json'
 ACCOUNTS = []
 BOT = TeleBot(TOKEN)
-BUFFER_LINK_IS_AT_END = 7
+BUFFER_EMOJI_BELONGS_TO_LINK = 5
+BUFFER_LINK_IS_AT_END = 5
 JITTER_LIMIT_MIN = 15
 SEND_POST_LIMIT_SEC = 60
 MAX_POSTS_TO_CHECK = 10
@@ -154,3 +155,21 @@ class Task:
             self.schedule[idx].skipped = True
 
         return self.schedule
+
+
+class CustomMarkdown:
+    @staticmethod
+    def parse(text):
+        text, entities = markdown.parse(text)
+        for i, e in enumerate(entities):
+            if isinstance(e, MessageEntityTextUrl):
+                if e.url.startswith('emoji/'):
+                    entities[i] = MessageEntityCustomEmoji(e.offset, e.length, int(e.url.split('/')[1]))
+        return text, entities
+
+    @staticmethod
+    def unparse(text, entities):
+        for i, e in enumerate(entities or []):
+            if isinstance(e, MessageEntityCustomEmoji):
+                entities[i] = MessageEntityTextUrl(e.offset, e.length, f'emoji/{e.document_id}')
+        return markdown.unparse(text, entities)
