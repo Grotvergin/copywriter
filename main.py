@@ -8,7 +8,7 @@ from common import BuildService, GetSector, Stamp, ParseAccountRow, ShowButtons,
 from os.path import join, exists
 from os import getcwd, remove
 from sys import exit
-from emoji import is_emoji
+from emoji import is_emoji, EMOJI_DATA
 from secret import SHEET_NAME, SHEET_ID, SECRET_CODE, MY_TG_ID, AR_TG_ID, ADM_TG_ID
 from source import (Task, TASKS_FILE, BOT, MAX_POSTS_TO_CHECK,
                     AUTHORIZED_USERS_FILE, BTNS, LONG_SLEEP, CANCEL_BTN,
@@ -79,34 +79,34 @@ def saveTasks(tasks: List[Task]):
 def findIdByOffset(where_found, entities):
     closest_entity = None
     min_diff = float('inf')
+    if entities:
+        for ent in entities:
+            if isinstance(ent, MessageEntityCustomEmoji):
+                diff = abs(ent.offset - where_found)
 
-    for ent in entities:
-        if isinstance(ent, MessageEntityCustomEmoji):
-            diff = abs(ent.offset - where_found)
+                if diff < min_diff:
+                    min_diff = diff
+                    closest_entity = ent
 
-            if diff < min_diff:
-                min_diff = diff
-                closest_entity = ent
-
-    if closest_entity:
+    if closest_entity and min_diff < BUFFER_LINK_IS_AT_END:
         return closest_entity.document_id
 
 
 def reformatPost(msg, task, ends_with_link):
     text = msg.message
-    cnt_emojis = 0
+    cnt_emojis = sum(1 for char in text if char in EMOJI_DATA)
     new_text = ""
 
     if ends_with_link:
         link_offset = len(msg.message)
         emoji_offset = len(msg.message)
 
-        for ent in msg.entities:
-            if isinstance(ent, (MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention)):
-                link_offset = ent.offset
-            elif isinstance(ent, MessageEntityCustomEmoji):
-                emoji_offset = ent.offset
-                cnt_emojis += 1
+        if msg.entities:
+            for ent in msg.entities:
+                if isinstance(ent, (MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention)):
+                    link_offset = ent.offset
+                elif isinstance(ent, MessageEntityCustomEmoji):
+                    emoji_offset = ent.offset
 
         if abs(link_offset - emoji_offset) < BUFFER_EMOJI_BELONGS_TO_LINK:
             split_index = min(link_offset, emoji_offset) - cnt_emojis
@@ -126,7 +126,7 @@ def reformatPost(msg, task, ends_with_link):
         else:
             new_text += char
 
-    if new_text and new_text[-1] not in '.!?…':
+    if new_text and new_text[-1] not in '.!?…:':
         new_text += '.'
     new_text += '\n\n'
 
@@ -164,7 +164,6 @@ async def getBestPost(source_channels, client, channel_name):
     posted = loadPosted()
     reasons = {}
     ends_with_link = False
-    cnt_emojis = 0
 
     for channel in source_channels:
         try:
@@ -189,6 +188,8 @@ async def getBestPost(source_channels, client, channel_name):
                     reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
                     continue
 
+                cnt_emojis = sum(1 for char in msg.message if char in EMOJI_DATA)
+
                 if msg.id in posted.get(channel, []):
                     reason = '🚫 Уже был использован'
                     if reason not in reasons:
@@ -201,8 +202,6 @@ async def getBestPost(source_channels, client, channel_name):
                     for ent in msg.entities:
                         if isinstance(ent, (MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention)):
                             link_count += 1
-                        elif isinstance(ent, MessageEntityCustomEmoji):
-                            cnt_emojis += 1
 
                 if link_count > 1:
                     reason = '🔗 Больше 1 ссылки'
@@ -214,8 +213,6 @@ async def getBestPost(source_channels, client, channel_name):
                 if link_count == 1:
                     for ent in msg.entities:
                         if isinstance(ent, (MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention)):
-                            left = len(msg.message) + cnt_emojis
-                            right = ent.length + ent.offset
                             if abs((len(msg.message) + cnt_emojis) - (ent.length + ent.offset)) < BUFFER_LINK_IS_AT_END:
                                 temp_ends_with_link = True
                     if not temp_ends_with_link:
@@ -481,7 +478,12 @@ async def processRequests():
                         try:
                             file_name = f'./{MEDIA_DIR}/{task.target}_{best_msg.id}_{datetime.now().strftime('%H_%M_%S')}'
                             file_path = await reader.download_media(best_msg, file=file_name)
-                            await sender.send_message(entity, text, file=file_path, link_preview=False)
+                            await sender.send_file(entity,
+                                                   caption=text,
+                                                   file=file_path,
+                                                   force_document=False,
+                                                   supports_streaming=True,
+                                                   link_preview=False)
                             remove(file_path)
                         except Exception as e:
                             Stamp(f"Unable to download file for {task.target}: {e}, {format_exc()}", 'w')
