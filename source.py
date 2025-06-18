@@ -27,6 +27,9 @@ LONG_SLEEP = 20
 NOTIF_TIME_DELTA = 5
 WEEKEND_SKIP_FACTOR = 0.5
 TO_SKIP_FACTOR = 0.33
+SPACE_OFFSET = 1
+NEW_LINE_OFFSET = 2
+BLANK_LINE_OFFSET = 3
 CONN_ERRORS = (TimeoutError, ServerNotFoundError, gaierror, HttpError, SSLEOFError)
 LAST_TIMETABLE_CHANGE = datetime.now()
 LAST_NOTIF_PROCESSOR = datetime.now()
@@ -55,6 +58,7 @@ class Task:
     schedule: List[Post]
     document_id: int
     signature: str
+    offset_type: int
 
     def to_dict(self):
         return {
@@ -72,7 +76,8 @@ class Task:
                 for p in self.schedule
             ],
             "document_id": self.document_id,
-            "signature": self.signature
+            "signature": self.signature,
+            "offset_type": self.offset_type
         }
 
     @staticmethod
@@ -92,7 +97,8 @@ class Task:
                 for p in d.get("schedule", [])
             ],
             document_id=d["document_id"],
-            signature=d["signature"]
+            signature=d["signature"],
+            offset_type=d.get('offset_type', BLANK_LINE_OFFSET)
         )
 
     def get_due_posts(self, now: datetime) -> List[Post]:

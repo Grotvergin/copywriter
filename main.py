@@ -13,7 +13,7 @@ from secret import SHEET_NAME, SHEET_ID, SECRET_CODE, MY_TG_ID, AR_TG_ID, ADM_TG
 from source import (Task, TASKS_FILE, BOT, MAX_POSTS_TO_CHECK,
                     AUTHORIZED_USERS_FILE, BTNS, LONG_SLEEP, CANCEL_BTN,
                     NOTIF_TIME_DELTA, POSTED_FILE, MEDIA_DIR, SEND_POST_LIMIT_SEC,
-                    BUFFER_LINK_IS_AT_END, CustomMarkdown, BUFFER_EMOJI_BELONGS_TO_LINK)
+                    BUFFER_LINK_IS_AT_END, CustomMarkdown, BUFFER_EMOJI_BELONGS_TO_LINK, SPACE_OFFSET, NEW_LINE_OFFSET)
 from traceback import format_exc
 from threading import Thread
 from asyncio import run, sleep as async_sleep
@@ -128,7 +128,13 @@ def reformatPost(msg, task, ends_with_link):
 
     if new_text and new_text[-1] not in '.!?…:':
         new_text += '.'
-    new_text += '\n\n'
+
+    if task.offset_type == SPACE_OFFSET:
+        new_text += ' '
+    elif task.offset_type == NEW_LINE_OFFSET:
+        new_text += '\n'
+    else:
+        new_text += '\n\n'
 
     if task.document_id:
         new_text += f'[🌟](emoji/{task.document_id}) '
@@ -294,6 +300,7 @@ def showTasks(user_id):
         response += f"📎 Референсы: {' '.join(f'@{s}' for s in task.sources)}\n"
         response += f"🌟 ID эмодзи: {task.document_id}\n"
         response += f"🪄 Подпись: {task.signature if task.signature else 'нет'}\n"
+        response += f"🚧 Тип отступа: {task.offset_type}\n"
         response += f"🕗 Время публикаций: {task.start.strftime('%H:%M')} – {task.end.strftime('%H:%M')}\n"
         response += f"📦 Всего постов в день: {task.amount}\n"
         response += f"⏰ Расписание на сегодня:\n"
@@ -331,13 +338,14 @@ def acceptTask(message: Message):
     lines = message.text.strip().split('\n')
     document_id = 0
     signature = ''
+    offset_type = 2
 
     if message.text == CANCEL_BTN[0]:
         ShowButtons(message, BTNS, '❔ Выберите действие:')
         return
 
-    if len(lines) < 4 or len(lines) > 5:
-        ShowButtons(message, CANCEL_BTN, "❌ Неверный формат. Отправьте данные в 4 или 5 строках")
+    if len(lines) != 4 and len(lines) != 6:
+        ShowButtons(message, CANCEL_BTN, "❌ Неверный формат. Отправьте данные в 4 или 6 строках")
         BOT.register_next_step_handler(message, acceptTask)
         return
 
@@ -353,22 +361,17 @@ def acceptTask(message: Message):
         if amount <= 0:
             raise ValueError("Amount must be positive")
 
-        if len(lines) == 5:
+        if len(lines) == 6:
             signature = lines[4]
             for entity in message.entities:
                 if entity.type == 'custom_emoji':
                     document_id = int(entity.custom_emoji_id)
                     signature = lines[4][entity.length - 1:]
                     break
+            offset_type = int(lines[5])
 
     except ValueError:
-        ShowButtons(
-            message,
-            CANCEL_BTN,
-            "❌ Ошибка: используйте формат:\n"
-            "⏰ Время: HH:MM HH:MM\n"
-            "📦 Кол-во постов: положительное число"
-        )
+        ShowButtons(message, CANCEL_BTN,"❌ Ошибка, проверьте формат")
         BOT.register_next_step_handler(message, acceptTask)
         return
 
@@ -387,10 +390,11 @@ def acceptTask(message: Message):
         amount=amount,
         schedule=[],
         document_id=document_id,
-        signature=signature
+        signature=signature,
+        offset_type=offset_type
     )
 
-    new_task.regenerate_schedule(datetime.today().date())  # генерация расписания на сегодня
+    new_task.regenerate_schedule(datetime.today().date())
     tasks.append(new_task)
     saveTasks(tasks)
 
@@ -534,15 +538,21 @@ def MessageAccept(message: Message) -> None:
         BOT.send_message(user_id, "❔ Пришлите данные в формате:\n\n"
                                   "📍 Целевой канал\n"
                                   "📎 Ссылки на каналы-референсы через пробел\n"
-                                  "⏰ Время начала и окончания публикаций (например, 10:00 19:30)\n"
-                                  "📦 Количество постов в день\n"
-                                  "🌟 Кастомный эмодзи и подпись (опционально)\n\n"
+                                  "⏰ Время начала и окончания публикаций\n"
+                                  "📦 Количество постов в день\n\n"
+                                  "⚡️ Если нужна подпись, то дополнительно:\n"
+                                  "🌟 Кастомный эмодзи и подпись\n"
+                                  "🚧 Тип отступа от 1 до 3:\n"
+                                  "1️⃣ Через пробел\n"
+                                  "2️⃣ На новой строке\n"
+                                  "3️⃣ Через пустую строку\n\n"
                                   "ℹ️ Пример:\n"
                                   "@mychannel\n"
                                   "@ref1 @ref2 @ref3\n"
                                   "10:00 19:30\n"
                                   "12\n"
-                                  "🌟 этим")
+                                  "🌟 Подписывайтесь!\n"
+                                  "2")
         BOT.register_next_step_handler(message, acceptTask)
     elif message.text == BTNS[1]:
         BOT.send_message(user_id, '❔ Введите ссылку на канал в формате @name')
