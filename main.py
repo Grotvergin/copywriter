@@ -13,7 +13,7 @@ from secret import SHEET_NAME, SHEET_ID, SECRET_CODE, MY_TG_ID, AR_TG_ID, ADM_TG
 from source import (Task, TASKS_FILE, BOT, MAX_POSTS_TO_CHECK,
                     AUTHORIZED_USERS_FILE, BTNS, LONG_SLEEP, CANCEL_BTN,
                     NOTIF_TIME_DELTA, POSTED_FILE, MEDIA_DIR, SEND_POST_LIMIT_SEC,
-                    BUFFER_LINK_IS_AT_END, CustomMarkdown, BUFFER_EMOJI_BELONGS_TO_LINK, SPACE_OFFSET, NEW_LINE_OFFSET)
+                    BUFFER_LINK_IS_AT_END, CustomMarkdown, BUFFER_EMOJI_BELONGS_TO_LINK, SPACE_OFFSET, NEW_LINE_OFFSET, MAX_VIDEO_SIZE_BYTES)
 from traceback import format_exc
 from threading import Thread
 from asyncio import run, sleep as async_sleep
@@ -198,6 +198,13 @@ async def getBestPost(source_channels, client, channel_name):
 
                 if msg.id in posted.get(channel, []):
                     reason = '🚫 Уже был использован'
+                    if reason not in reasons:
+                        reasons[reason] = []
+                    reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
+                    continue
+
+                if msg.file and msg.file.mime_type and msg.file.mime_type == 'video/mp4' and msg.file.size > MAX_VIDEO_SIZE_BYTES:
+                    reason = f'📹 Большое видео (> {MAX_VIDEO_SIZE_BYTES} байт)'
                     if reason not in reasons:
                         reasons[reason] = []
                     reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
