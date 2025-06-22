@@ -13,12 +13,14 @@ from secret import SHEET_NAME, SHEET_ID, SECRET_CODE, MY_TG_ID, AR_TG_ID, ADM_TG
 from source import (Task, TASKS_FILE, BOT, MAX_POSTS_TO_CHECK,
                     AUTHORIZED_USERS_FILE, BTNS, LONG_SLEEP, CANCEL_BTN,
                     NOTIF_TIME_DELTA, POSTED_FILE, MEDIA_DIR, SEND_POST_LIMIT_SEC,
-                    BUFFER_LINK_IS_AT_END, CustomMarkdown, BUFFER_EMOJI_BELONGS_TO_LINK, SPACE_OFFSET, NEW_LINE_OFFSET, MAX_VIDEO_SIZE_BYTES)
+                    BUFFER_LINK_IS_AT_END, CustomMarkdown, BUFFER_EMOJI_BELONGS_TO_LINK,
+                    SPACE_OFFSET, NEW_LINE_OFFSET, MAX_VIDEO_SIZE_MB, MAX_VIDEO_LEN_SEC)
 from traceback import format_exc
 from threading import Thread
 from asyncio import run, sleep as async_sleep
 from telebot.types import Message
-from telethon.tl.types import MessageEntityTextUrl, MessageEntityUrl, MessageEntityMention, MessageEntityCustomEmoji
+from telethon.tl.types import (MessageEntityTextUrl, MessageEntityUrl,
+                               MessageEntityMention, MessageEntityCustomEmoji)
 
 
 def sendMultipleMessages(bot, msg: str, chat_ids: list):
@@ -161,6 +163,13 @@ def savePosted(channel_name, post_id):
         dump(posted_posts, f, indent=2)
 
 
+def appendReason(reason, channel, reasons_dict, msg_id):
+    if reason not in reasons_dict:
+        reasons_dict[reason] = []
+    reasons_dict[reason].append(f'https://t.me/{channel}/{msg_id}')
+    return reasons_dict
+
+
 async def getBestPost(source_channels, client, channel_name):
     Stamp(f"Getting best post among {', '.join(source_channels)}", 'i')
     best_post = None
@@ -188,27 +197,22 @@ async def getBestPost(source_channels, client, channel_name):
                 temp_ends_with_link = False
 
                 if not msg.message:
-                    reason = '📄 Нет текста'
-                    if reason not in reasons:
-                        reasons[reason] = []
-                    reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
+                    reasons = appendReason('📄 Нет текста', channel, reasons, msg.id)
                     continue
 
                 cnt_emojis = sum(1 for char in msg.message if char in EMOJI_DATA)
 
                 if msg.id in posted.get(channel, []):
-                    reason = '🚫 Уже был использован'
-                    if reason not in reasons:
-                        reasons[reason] = []
-                    reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
+                    reasons = appendReason('🚫 Уже был использован', channel, reasons, msg.id)
                     continue
 
-                if msg.file and msg.file.mime_type and msg.file.mime_type == 'video/mp4' and msg.file.size > MAX_VIDEO_SIZE_BYTES:
-                    reason = f'📹 Большое видео (> {MAX_VIDEO_SIZE_BYTES} байт)'
-                    if reason not in reasons:
-                        reasons[reason] = []
-                    reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
-                    continue
+                if msg.file and msg.file.mime_type == 'video/mp4':
+                    if msg.file.size > MAX_VIDEO_SIZE_MB * 1024 * 1024:
+                        reasons = appendReason(f'📹 Большое видео (> {MAX_VIDEO_SIZE_BYTES} байт)', channel, reasons, msg.id)
+                        continue
+                    elif msg.file.duration > MAX_VIDEO_LEN_SEC:
+                        reasons = appendReason(f'📽 Длинное видео (> {MAX_VIDEO_LEN_SEC} секунд)', channel, reasons, msg.id)
+                        continue
 
                 link_count = 0
                 if msg.entities:
@@ -217,10 +221,7 @@ async def getBestPost(source_channels, client, channel_name):
                             link_count += 1
 
                 if link_count > 1:
-                    reason = '🔗 Больше 1 ссылки'
-                    if reason not in reasons:
-                        reasons[reason] = []
-                    reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
+                    reasons = appendReason('🔗 Больше 1 ссылки', channel, reasons, msg.id)
                     continue
 
                 if link_count == 1:
@@ -229,10 +230,7 @@ async def getBestPost(source_channels, client, channel_name):
                             if abs((len(msg.message) + cnt_emojis) - (ent.length + ent.offset)) < BUFFER_LINK_IS_AT_END:
                                 temp_ends_with_link = True
                     if not temp_ends_with_link:
-                        reason = '🔍 В посте ровно 1 ссылка, но не в конце'
-                        if reason not in reasons:
-                            reasons[reason] = []
-                        reasons[reason].append(f'https://t.me/{channel}/{msg.id}')
+                        reasons = appendReason('🔍 В посте ровно 1 ссылка, но не в конце', channel, reasons, msg.id)
                         continue
 
                 if msg.forwards > max_forwards:
