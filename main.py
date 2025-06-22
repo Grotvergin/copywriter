@@ -25,7 +25,7 @@ from telethon.tl.types import (MessageEntityTextUrl, MessageEntityUrl,
 
 def sendMultipleMessages(bot, msg: str, chat_ids: list):
     for chat_id in chat_ids:
-        bot.send_message(chat_id, msg)
+        bot.send_message(chat_id, msg, disable_web_page_preview=True)
 
 
 async def authorizeAccounts():
