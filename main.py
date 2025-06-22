@@ -208,7 +208,7 @@ async def getBestPost(source_channels, client, channel_name):
 
                 if msg.file and msg.file.mime_type == 'video/mp4':
                     if msg.file.size > MAX_VIDEO_SIZE_MB * 1024 * 1024:
-                        reasons = appendReason(f'📹 Большое видео (> {MAX_VIDEO_SIZE_BYTES} байт)', channel, reasons, msg.id)
+                        reasons = appendReason(f'📹 Большое видео (> {MAX_VIDEO_SIZE_MB} МБ)', channel, reasons, msg.id)
                         continue
                     elif msg.file.duration > MAX_VIDEO_LEN_SEC:
                         reasons = appendReason(f'📽 Длинное видео (> {MAX_VIDEO_LEN_SEC} секунд)', channel, reasons, msg.id)
