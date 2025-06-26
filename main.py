@@ -200,20 +200,26 @@ async def getBestPost(source_channels, client, channel_name):
                     reasons = appendReason('📄 Нет текста', channel, reasons, msg.id)
                     continue
 
-                cnt_emojis = sum(1 for char in msg.message if char in EMOJI_DATA)
-
                 if msg.id in posted.get(channel, []):
                     reasons = appendReason('🚫 Уже был использован', channel, reasons, msg.id)
                     continue
 
-                if msg.file and msg.file.mime_type == 'video/mp4':
-                    if msg.file.size > MAX_VIDEO_SIZE_MB * 1024 * 1024:
-                        reasons = appendReason(f'📹 Большое видео (> {MAX_VIDEO_SIZE_MB} МБ)', channel, reasons, msg.id)
+                if msg.file and msg.file.mime_type.startswith('video'):
+                    if msg.file.mime_type.endswith('quicktime'):
+                        reasons = appendReason(f'☢️ Видео формата MOV', channel, reasons, msg.id)
                         continue
-                    elif msg.file.duration > MAX_VIDEO_LEN_SEC:
-                        reasons = appendReason(f'📽 Длинное видео (> {MAX_VIDEO_LEN_SEC} секунд)', channel, reasons, msg.id)
+                    elif msg.file.mime_type.endswith('mp4'):
+                        if msg.file.size > MAX_VIDEO_SIZE_MB * 1024 * 1024:
+                            reasons = appendReason(f'📹 Большое видео MP4 (> {MAX_VIDEO_SIZE_MB} МБ)', channel, reasons, msg.id)
+                            continue
+                        elif msg.file.duration > MAX_VIDEO_LEN_SEC:
+                            reasons = appendReason(f'📽 Длинное видео MP4 (> {MAX_VIDEO_LEN_SEC} секунд)', channel, reasons, msg.id)
+                            continue
+                    else:
+                        reasons = appendReason(f'❓ Неизвестный формат видео: {msg.file.mime_type}', channel, reasons, msg.id)
                         continue
 
+                cnt_emojis = sum(1 for char in msg.message if char in EMOJI_DATA)
                 link_count = 0
                 if msg.entities:
                     for ent in msg.entities:
